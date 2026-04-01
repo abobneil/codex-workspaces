@@ -2,8 +2,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type SyntheticEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 
@@ -19,12 +19,58 @@ interface PanState {
   startY: number
   initialX: number
   initialY: number
+  hasMoved: boolean
+  shouldOpenMenu: boolean
+}
+
+interface CanvasActionMenuState {
+  x: number
+  y: number
+  worldX: number
+  worldY: number
+}
+
+interface TextBoxRecord {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  html: string
+  isPlaceholder: boolean
+  fontSize: number
+  color: string
+  isBold: boolean
+  isItalic: boolean
+  isUnderline: boolean
+}
+
+interface ResizeState {
+  pointerId: number
+  textBoxId: string
+  handle: ResizeHandle
+  startClientX: number
+  startClientY: number
+  initialBox: TextBoxRecord
+}
+
+interface SavedSelectionState {
+  textBoxId: string
+  range: Range
 }
 
 interface GridSettings {
   visible: boolean
   boldness: number
   color: string
+}
+
+interface TextBoxDefaults {
+  fontSize: number
+  color: string
+  isBold: boolean
+  isItalic: boolean
+  isUnderline: boolean
 }
 
 interface WorkspaceRecord {
@@ -44,9 +90,18 @@ interface WorkspaceEditorState {
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 3
 const GRID_SIZE = 60
+const PAN_CLICK_TOLERANCE = 6
+const CANVAS_ACTION_MENU_WIDTH = 232
+const CANVAS_ACTION_MENU_HEIGHT = 64
+const CANVAS_ACTION_MENU_OFFSET = 18
+const TEXT_BOX_DEFAULT_WIDTH = 320
+const TEXT_BOX_DEFAULT_HEIGHT = 180
+const TEXT_BOX_MIN_WIDTH = 180
+const TEXT_BOX_MIN_HEIGHT = 120
 
 type OverlayView = 'settings' | 'help' | 'workspaces' | null
 type WorkspaceLibraryView = 'active' | 'recovery'
+type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se'
 
 const helpContent = {
   title: 'Help',
@@ -163,6 +218,52 @@ function createWorkspaceId() {
   return `workspace-${Date.now()}`
 }
 
+function createTextBoxId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `textbox-${Date.now()}`
+}
+
+function placeCaretAtEnd(element: HTMLElement) {
+  const selection = window.getSelection()
+
+  if (!selection) {
+    return
+  }
+
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function selectAllText(element: HTMLElement) {
+  const selection = window.getSelection()
+
+  if (!selection) {
+    return
+  }
+
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function isSelectionInsideElement(selection: Selection, element: HTMLElement) {
+  const anchorNode = selection.anchorNode
+  const focusNode = selection.focusNode
+
+  if (!anchorNode || !focusNode) {
+    return false
+  }
+
+  return element.contains(anchorNode) && element.contains(focusNode)
+}
+
 function ActiveIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -254,12 +355,91 @@ function TrashIcon() {
   )
 }
 
+function TextBoxIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M5 7.5h14M12 7.5v9m-4-9h8m-7 9h6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function ShapesIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M6 6h6v6H6zM16.5 7.25a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5ZM8.5 15l3.25 3.5H5.25z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function ConnectorsIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M6.5 6.5h3v3h-3zM14.5 14.5h3v3h-3zM9.5 8h3a4 4 0 0 1 4 4v2.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function EmbedIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M8 7.5A2.5 2.5 0 0 1 10.5 5h6A2.5 2.5 0 0 1 19 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-6A2.5 2.5 0 0 1 8 16.5zM5 9.5h2M5 14.5h2M12 9.5h3m-3 3h3"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function BoldIcon() {
+  return <span aria-hidden="true">B</span>
+}
+
+function ItalicIcon() {
+  return <span aria-hidden="true">I</span>
+}
+
+function UnderlineIcon() {
+  return <span aria-hidden="true">U</span>
+}
+
 export function InfiniteCanvasPage() {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef<PanState | null>(null)
+  const resizeRef = useRef<ResizeState | null>(null)
+  const textEditorRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const selectionRef = useRef<SavedSelectionState | null>(null)
 
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
+  const [canvasActionMenu, setCanvasActionMenu] = useState<CanvasActionMenuState | null>(null)
+  const [textBoxes, setTextBoxes] = useState<TextBoxRecord[]>([])
+  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null)
+  const [focusTextBoxId, setFocusTextBoxId] = useState<string | null>(null)
+  const [textToolbar, setTextToolbar] = useState({
+    fontSize: '16',
+    color: '#edf5ff',
+  })
   const [activeOverlay, setActiveOverlay] = useState<OverlayView>(null)
   const [workspaceLibraryView, setWorkspaceLibraryView] = useState<WorkspaceLibraryView>('active')
   const [workspaceRecords, setWorkspaceRecords] = useState(initialWorkspaces)
@@ -270,6 +450,13 @@ export function InfiniteCanvasPage() {
     visible: true,
     boldness: 18,
     color: '#ffffff',
+  })
+  const [textBoxDefaults, setTextBoxDefaults] = useState<TextBoxDefaults>({
+    fontSize: 16,
+    color: '#edf5ff',
+    isBold: false,
+    isItalic: false,
+    isUnderline: false,
   })
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -312,6 +499,8 @@ export function InfiniteCanvasPage() {
 
       setIsMenuOpen(false)
       setIsWorkspaceMenuOpen(false)
+      setCanvasActionMenu(null)
+      setSelectedTextBoxId(null)
       setWorkspaceEditor(null)
       setWorkspaceDeleteTarget(null)
       setActiveOverlay(null)
@@ -321,6 +510,45 @@ export function InfiniteCanvasPage() {
 
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  useEffect(() => {
+    if (!focusTextBoxId) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const editor = textEditorRefs.current[focusTextBoxId]
+      const textBox = textBoxes.find((entry) => entry.id === focusTextBoxId)
+
+      if (!editor || !textBox) {
+        return
+      }
+
+      editor.focus()
+      if (textBox.isPlaceholder) {
+        selectAllText(editor)
+      } else {
+        placeCaretAtEnd(editor)
+      }
+      setFocusTextBoxId(null)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [focusTextBoxId, textBoxes])
+
+  useEffect(() => {
+    for (const textBox of textBoxes) {
+      const editor = textEditorRefs.current[textBox.id]
+
+      if (!editor) {
+        continue
+      }
+
+      if (editor.innerHTML !== textBox.html) {
+        editor.innerHTML = textBox.html
+      }
+    }
+  }, [textBoxes])
 
   const activeWorkspaces = workspaceRecords.filter((workspace) => !workspace.deletedAt)
   const deletedWorkspaces = workspaceRecords.filter((workspace) => workspace.deletedAt)
@@ -353,7 +581,64 @@ export function InfiniteCanvasPage() {
     })
   }
 
+  const clientToWorld = (clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect()
+
+    if (!rect) {
+      return null
+    }
+
+    const localX = clientX - rect.left
+    const localY = clientY - rect.top
+
+    return {
+      worldX: (localX - viewport.x) / viewport.zoom,
+      worldY: (localY - viewport.y) / viewport.zoom,
+    }
+  }
+
+  const openCanvasActionMenu = (clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect()
+    const worldPoint = clientToWorld(clientX, clientY)
+
+    if (!rect || !worldPoint) {
+      return
+    }
+
+    const left = clamp(
+      clientX - rect.left + CANVAS_ACTION_MENU_OFFSET,
+      16,
+      rect.width - CANVAS_ACTION_MENU_WIDTH - 16,
+    )
+    const top = clamp(
+      clientY - rect.top + CANVAS_ACTION_MENU_OFFSET,
+      16,
+      rect.height - CANVAS_ACTION_MENU_HEIGHT - 16,
+    )
+
+    setCanvasActionMenu({
+      x: left,
+      y: top,
+      worldX: worldPoint.worldX,
+      worldY: worldPoint.worldY,
+    })
+    setIsMenuOpen(false)
+    setIsWorkspaceMenuOpen(false)
+  }
+
+  const isCanvasSurfaceTarget = (target: EventTarget | null) =>
+    target instanceof HTMLElement && target.dataset.canvasSurface === 'true'
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    setIsMenuOpen(false)
+    setIsWorkspaceMenuOpen(false)
+    setCanvasActionMenu(null)
+
+    if (!isCanvasSurfaceTarget(event.target)) {
+      return
+    }
+
+    setSelectedTextBoxId(null)
     event.currentTarget.setPointerCapture(event.pointerId)
     panRef.current = {
       pointerId: event.pointerId,
@@ -361,6 +646,8 @@ export function InfiniteCanvasPage() {
       startY: event.clientY,
       initialX: viewport.x,
       initialY: viewport.y,
+      hasMoved: false,
+      shouldOpenMenu: event.button === 0,
     }
   }
 
@@ -373,6 +660,10 @@ export function InfiniteCanvasPage() {
 
     const deltaX = event.clientX - pan.startX
     const deltaY = event.clientY - pan.startY
+
+    if (!pan.hasMoved && (Math.abs(deltaX) > PAN_CLICK_TOLERANCE || Math.abs(deltaY) > PAN_CLICK_TOLERANCE)) {
+      pan.hasMoved = true
+    }
 
     setViewport((current) => ({
       ...current,
@@ -390,6 +681,10 @@ export function InfiniteCanvasPage() {
 
     event.currentTarget.releasePointerCapture(event.pointerId)
     panRef.current = null
+
+    if (pan.shouldOpenMenu && !pan.hasMoved) {
+      openCanvasActionMenu(event.clientX, event.clientY)
+    }
   }
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
@@ -429,6 +724,7 @@ export function InfiniteCanvasPage() {
     setActiveOverlay(view)
     setIsMenuOpen(false)
     setIsWorkspaceMenuOpen(false)
+    setCanvasActionMenu(null)
     setWorkspaceEditor(null)
     setWorkspaceDeleteTarget(null)
     if (view === 'workspaces') {
@@ -439,13 +735,14 @@ export function InfiniteCanvasPage() {
   const closeAllOverlays = () => {
     setIsMenuOpen(false)
     setIsWorkspaceMenuOpen(false)
+    setCanvasActionMenu(null)
     setWorkspaceEditor(null)
     setWorkspaceDeleteTarget(null)
     setActiveOverlay(null)
     setWorkspaceLibraryView('active')
   }
 
-  const stopOverlayClick = (event: ReactMouseEvent<HTMLElement>) => {
+  const stopEvent = (event: SyntheticEvent<HTMLElement>) => {
     event.stopPropagation()
   }
 
@@ -454,6 +751,16 @@ export function InfiniteCanvasPage() {
     value: GridSettings[Key],
   ) => {
     setGridSettings((current) => ({
+      ...current,
+      [key]: value,
+    }))
+  }
+
+  const updateTextBoxDefault = <Key extends keyof TextBoxDefaults>(
+    key: Key,
+    value: TextBoxDefaults[Key],
+  ) => {
+    setTextBoxDefaults((current) => ({
       ...current,
       [key]: value,
     }))
@@ -559,6 +866,246 @@ export function InfiniteCanvasPage() {
     )
   }
 
+  const createTextBox = () => {
+    if (!canvasActionMenu) {
+      return
+    }
+
+    const nextTextBox: TextBoxRecord = {
+      id: createTextBoxId(),
+      x: canvasActionMenu.worldX,
+      y: canvasActionMenu.worldY,
+      width: TEXT_BOX_DEFAULT_WIDTH,
+      height: TEXT_BOX_DEFAULT_HEIGHT,
+      html: '<p>Start typing...</p>',
+      isPlaceholder: true,
+      fontSize: textBoxDefaults.fontSize,
+      color: textBoxDefaults.color,
+      isBold: textBoxDefaults.isBold,
+      isItalic: textBoxDefaults.isItalic,
+      isUnderline: textBoxDefaults.isUnderline,
+    }
+
+    setTextBoxes((current) => [...current, nextTextBox])
+    setSelectedTextBoxId(nextTextBox.id)
+    setFocusTextBoxId(nextTextBox.id)
+    setCanvasActionMenu(null)
+  }
+
+  const selectCanvasAction = () => {
+    setCanvasActionMenu(null)
+  }
+
+  const selectTextBox = (textBoxId: string) => {
+    setSelectedTextBoxId(textBoxId)
+    setCanvasActionMenu(null)
+  }
+
+  const updateTextBoxHtml = (textBoxId: string, html: string) => {
+    setTextBoxes((current) =>
+      current.map((textBox) =>
+        textBox.id === textBoxId
+          ? {
+              ...textBox,
+              html,
+              isPlaceholder: false,
+            }
+          : textBox,
+      ),
+    )
+  }
+
+  const focusTextBoxForEditing = (textBox: TextBoxRecord) => {
+    setSelectedTextBoxId(textBox.id)
+    setCanvasActionMenu(null)
+
+    const editor = textEditorRefs.current[textBox.id]
+
+    if (!editor) {
+      return
+    }
+
+    editor.focus()
+
+    if (textBox.isPlaceholder) {
+      selectAllText(editor)
+    }
+  }
+
+  const persistEditorHtml = (textBoxId: string) => {
+    const editor = textEditorRefs.current[textBoxId]
+
+    if (!editor) {
+      return
+    }
+
+    updateTextBoxHtml(textBoxId, editor.innerHTML)
+  }
+
+  const saveSelectionForTextBox = (textBoxId: string) => {
+    const editor = textEditorRefs.current[textBoxId]
+    const selection = window.getSelection()
+
+    if (!editor || !selection || selection.rangeCount === 0) {
+      return
+    }
+
+    if (!isSelectionInsideElement(selection, editor)) {
+      return
+    }
+
+    selectionRef.current = {
+      textBoxId,
+      range: selection.getRangeAt(0).cloneRange(),
+    }
+  }
+
+  const focusTextBoxEditor = (textBoxId: string) => {
+    const editor = textEditorRefs.current[textBoxId]
+
+    if (!editor) {
+      return null
+    }
+
+    editor.focus()
+    return editor
+  }
+
+  const restoreSelectionForTextBox = (textBoxId: string) => {
+    const savedSelection = selectionRef.current
+    const selection = window.getSelection()
+    const editor = focusTextBoxEditor(textBoxId)
+
+    if (!editor || !selection) {
+      return editor
+    }
+
+    if (savedSelection?.textBoxId === textBoxId) {
+      selection.removeAllRanges()
+      selection.addRange(savedSelection.range.cloneRange())
+      return editor
+    }
+
+    placeCaretAtEnd(editor)
+    return editor
+  }
+
+  const runTextCommand = (textBoxId: string, command: string, value?: string) => {
+    restoreSelectionForTextBox(textBoxId)
+    document.execCommand('styleWithCSS', false, 'true')
+    document.execCommand(command, false, value)
+    persistEditorHtml(textBoxId)
+    saveSelectionForTextBox(textBoxId)
+  }
+
+  const applyFontSize = (textBoxId: string, fontSize: string) => {
+    const editor = restoreSelectionForTextBox(textBoxId)
+
+    if (!editor) {
+      return
+    }
+
+    document.execCommand('styleWithCSS', false, 'true')
+    document.execCommand('fontSize', false, '7')
+
+    for (const fontTag of editor.querySelectorAll('font[size=\"7\"]')) {
+      const span = document.createElement('span')
+      span.style.fontSize = `${fontSize}px`
+      span.innerHTML = fontTag.innerHTML
+      fontTag.replaceWith(span)
+    }
+
+    persistEditorHtml(textBoxId)
+    saveSelectionForTextBox(textBoxId)
+  }
+
+  const handleToolbarPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    event.stopPropagation()
+  }
+
+  const deleteTextBox = (textBoxId: string) => {
+    setTextBoxes((current) => current.filter((textBox) => textBox.id !== textBoxId))
+    setSelectedTextBoxId((current) => (current === textBoxId ? null : current))
+    setFocusTextBoxId((current) => (current === textBoxId ? null : current))
+    if (selectionRef.current?.textBoxId === textBoxId) {
+      selectionRef.current = null
+    }
+    delete textEditorRefs.current[textBoxId]
+  }
+
+  const beginResizeTextBox =
+    (textBox: TextBoxRecord, handle: ResizeHandle) =>
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      resizeRef.current = {
+        pointerId: event.pointerId,
+        textBoxId: textBox.id,
+        handle,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        initialBox: textBox,
+      }
+      setSelectedTextBoxId(textBox.id)
+    }
+
+  const handleResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resizeState = resizeRef.current
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const deltaX = (event.clientX - resizeState.startClientX) / viewport.zoom
+    const deltaY = (event.clientY - resizeState.startClientY) / viewport.zoom
+    const { initialBox, handle, textBoxId } = resizeState
+
+    let nextX = initialBox.x
+    let nextY = initialBox.y
+    let nextWidth = initialBox.width
+    let nextHeight = initialBox.height
+
+    if (handle === 'nw' || handle === 'sw') {
+      nextWidth = Math.max(TEXT_BOX_MIN_WIDTH, initialBox.width - deltaX)
+      nextX = initialBox.x + (initialBox.width - nextWidth)
+    } else {
+      nextWidth = Math.max(TEXT_BOX_MIN_WIDTH, initialBox.width + deltaX)
+    }
+
+    if (handle === 'nw' || handle === 'ne') {
+      nextHeight = Math.max(TEXT_BOX_MIN_HEIGHT, initialBox.height - deltaY)
+      nextY = initialBox.y + (initialBox.height - nextHeight)
+    } else {
+      nextHeight = Math.max(TEXT_BOX_MIN_HEIGHT, initialBox.height + deltaY)
+    }
+
+    setTextBoxes((current) =>
+      current.map((textBox) =>
+        textBox.id === textBoxId
+          ? {
+              ...textBox,
+              x: nextX,
+              y: nextY,
+              width: nextWidth,
+              height: nextHeight,
+            }
+          : textBox,
+      ),
+    )
+  }
+
+  const endResizeTextBox = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resizeState = resizeRef.current
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    resizeRef.current = null
+  }
+
   return (
     <main className="infinite-canvas-page">
       <button
@@ -567,6 +1114,7 @@ export function InfiniteCanvasPage() {
         className="canvas-icon-button canvas-icon-button--menu"
         onClick={() => {
           setIsWorkspaceMenuOpen(false)
+          setCanvasActionMenu(null)
           setIsMenuOpen((current) => !current)
         }}
         type="button"
@@ -582,7 +1130,7 @@ export function InfiniteCanvasPage() {
             className="canvas-overlay-backdrop canvas-overlay-backdrop--clear"
             onClick={() => setIsMenuOpen(false)}
           />
-          <section className="canvas-menu-panel" onClick={stopOverlayClick}>
+          <section className="canvas-menu-panel" onClick={stopEvent}>
             <button className="canvas-menu-item" onClick={() => openOverlay('settings')} type="button">
               Settings
             </button>
@@ -599,6 +1147,7 @@ export function InfiniteCanvasPage() {
           className="canvas-chip-button"
           onClick={() => {
             setIsMenuOpen(false)
+            setCanvasActionMenu(null)
             setIsWorkspaceMenuOpen((current) => !current)
           }}
           type="button"
@@ -616,7 +1165,7 @@ export function InfiniteCanvasPage() {
             className="canvas-overlay-backdrop canvas-overlay-backdrop--clear"
             onClick={() => setIsWorkspaceMenuOpen(false)}
           />
-          <section className="workspace-menu-panel" onClick={stopOverlayClick}>
+          <section className="workspace-menu-panel" onClick={stopEvent}>
             <div className="workspace-menu-panel__section">
               <p className="workspace-menu-panel__eyebrow">Recent Workspaces</p>
               <div className="workspace-menu-panel__list">
@@ -649,10 +1198,12 @@ export function InfiniteCanvasPage() {
         onPointerUp={handlePointerUp}
         onWheel={handleWheel}
         ref={viewportRef}
+        data-canvas-surface="true"
       >
         {gridSettings.visible ? (
           <div
             className="canvas-grid"
+            data-canvas-surface="true"
             style={{
               backgroundImage: `linear-gradient(${gridLineColor} 1px, transparent 1px), linear-gradient(90deg, ${gridLineColor} 1px, transparent 1px)`,
               backgroundPosition: `${gridOffsetX}px ${gridOffsetY}px`,
@@ -663,10 +1214,232 @@ export function InfiniteCanvasPage() {
 
         <div
           className="canvas-world"
+          data-canvas-surface="true"
           style={{
             transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
           }}
-        />
+        >
+          {textBoxes.map((textBox) => {
+            const isSelected = textBox.id === selectedTextBoxId
+
+            return (
+              <article
+                className={`canvas-text-box${isSelected ? ' is-selected' : ''}`}
+                key={textBox.id}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  selectTextBox(textBox.id)
+                }}
+                style={{
+                  left: `${textBox.x}px`,
+                  top: `${textBox.y}px`,
+                  width: `${textBox.width}px`,
+                  height: `${textBox.height}px`,
+                }}
+              >
+                <div
+                  aria-label="Rich text box"
+                  className={`canvas-text-box__editor${textBox.isPlaceholder ? ' is-placeholder' : ''}`}
+                  contentEditable
+                  dir="ltr"
+                  onBlur={() => persistEditorHtml(textBox.id)}
+                  onKeyUp={() => saveSelectionForTextBox(textBox.id)}
+                  onInput={(event) => updateTextBoxHtml(textBox.id, event.currentTarget.innerHTML)}
+                  onMouseUp={() => saveSelectionForTextBox(textBox.id)}
+                  onPointerDown={(event) => {
+                    event.stopPropagation()
+                    focusTextBoxForEditing(textBox)
+                  }}
+                  ref={(node) => {
+                    textEditorRefs.current[textBox.id] = node
+                    if (node && node.innerHTML !== textBox.html) {
+                      node.innerHTML = textBox.html
+                    }
+                  }}
+                  style={{
+                    color: textBox.color,
+                    fontSize: `${textBox.fontSize}px`,
+                    fontWeight: textBox.isBold ? 700 : 400,
+                    fontStyle: textBox.isItalic ? 'italic' : 'normal',
+                    textDecoration: textBox.isUnderline ? 'underline' : 'none',
+                  }}
+                  suppressContentEditableWarning
+                />
+
+                {isSelected ? (
+                  <>
+                    <div className="canvas-text-box__toolbar" onPointerDown={handleToolbarPointerDown}>
+                      <label className="canvas-text-box__toolbar-field">
+                        <span>Size</span>
+                        <select
+                          onChange={(event) => {
+                            const nextFontSize = event.target.value
+                            setTextToolbar((current) => ({
+                              ...current,
+                              fontSize: nextFontSize,
+                            }))
+                            applyFontSize(textBox.id, nextFontSize)
+                          }}
+                          value={textToolbar.fontSize}
+                        >
+                          <option value="14">14</option>
+                          <option value="16">16</option>
+                          <option value="18">18</option>
+                          <option value="24">24</option>
+                          <option value="32">32</option>
+                        </select>
+                      </label>
+                      <div className="canvas-text-box__toolbar-group">
+                        <button
+                          aria-label="Bold"
+                          className="canvas-text-box__toolbar-button"
+                          onClick={() => runTextCommand(textBox.id, 'bold')}
+                          type="button"
+                        >
+                          B
+                        </button>
+                        <button
+                          aria-label="Italic"
+                          className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--italic"
+                          onClick={() => runTextCommand(textBox.id, 'italic')}
+                          type="button"
+                        >
+                          I
+                        </button>
+                        <button
+                          aria-label="Underline"
+                          className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--underline"
+                          onClick={() => runTextCommand(textBox.id, 'underline')}
+                          type="button"
+                        >
+                          U
+                        </button>
+                      </div>
+                      <label className="canvas-text-box__toolbar-field canvas-text-box__toolbar-field--color">
+                        <span>Color</span>
+                        <input
+                          onChange={(event) => {
+                            const nextColor = event.target.value
+                            setTextToolbar((current) => ({
+                              ...current,
+                              color: nextColor,
+                            }))
+                            runTextCommand(textBox.id, 'foreColor', nextColor)
+                          }}
+                          type="color"
+                          value={textToolbar.color}
+                        />
+                      </label>
+                      <button
+                        aria-label="Delete text box"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--danger"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          deleteTextBox(textBox.id)
+                        }}
+                        title="Delete"
+                        type="button"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                    <button
+                      aria-label="Resize text box from top left"
+                      className="canvas-text-box__handle canvas-text-box__handle--nw"
+                      onPointerCancel={endResizeTextBox}
+                      onPointerDown={beginResizeTextBox(textBox, 'nw')}
+                      onPointerMove={handleResizePointerMove}
+                      onPointerUp={endResizeTextBox}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize text box from top right"
+                      className="canvas-text-box__handle canvas-text-box__handle--ne"
+                      onPointerCancel={endResizeTextBox}
+                      onPointerDown={beginResizeTextBox(textBox, 'ne')}
+                      onPointerMove={handleResizePointerMove}
+                      onPointerUp={endResizeTextBox}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize text box from bottom left"
+                      className="canvas-text-box__handle canvas-text-box__handle--sw"
+                      onPointerCancel={endResizeTextBox}
+                      onPointerDown={beginResizeTextBox(textBox, 'sw')}
+                      onPointerMove={handleResizePointerMove}
+                      onPointerUp={endResizeTextBox}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize text box from bottom right"
+                      className="canvas-text-box__handle canvas-text-box__handle--se"
+                      onPointerCancel={endResizeTextBox}
+                      onPointerDown={beginResizeTextBox(textBox, 'se')}
+                      onPointerMove={handleResizePointerMove}
+                      onPointerUp={endResizeTextBox}
+                      type="button"
+                    />
+                  </>
+                ) : null}
+              </article>
+            )
+          })}
+        </div>
+
+        {canvasActionMenu ? (
+          <section
+            aria-label="Canvas actions"
+            className="canvas-action-menu"
+            onClick={stopEvent}
+            onPointerDown={stopEvent}
+            role="menu"
+            style={{
+              left: `${canvasActionMenu.x}px`,
+              top: `${canvasActionMenu.y}px`,
+            }}
+          >
+            <button
+              aria-label="Insert text box"
+              className="canvas-action-menu__item"
+              onClick={createTextBox}
+              role="menuitem"
+              title="Text Box"
+              type="button"
+            >
+              <TextBoxIcon />
+            </button>
+            <button
+              aria-label="Insert shape"
+              className="canvas-action-menu__item"
+              onClick={selectCanvasAction}
+              role="menuitem"
+              title="Shapes"
+              type="button"
+            >
+              <ShapesIcon />
+            </button>
+            <button
+              aria-label="Insert connector"
+              className="canvas-action-menu__item"
+              onClick={selectCanvasAction}
+              role="menuitem"
+              title="Connectors"
+              type="button"
+            >
+              <ConnectorsIcon />
+            </button>
+            <button
+              aria-label="Embed file, image, website, audio, or video"
+              className="canvas-action-menu__item"
+              onClick={selectCanvasAction}
+              role="menuitem"
+              title="Embed"
+              type="button"
+            >
+              <EmbedIcon />
+            </button>
+          </section>
+        ) : null}
       </div>
 
       <div className="canvas-zoom-dock">
@@ -701,7 +1474,7 @@ export function InfiniteCanvasPage() {
             className={`canvas-modal${
               activeOverlay === 'workspaces' ? ' canvas-modal--wide' : ''
             }`}
-            onClick={stopOverlayClick}
+            onClick={stopEvent}
             role="dialog"
           >
             <div className="canvas-modal__header">
@@ -813,6 +1586,84 @@ export function InfiniteCanvasPage() {
                       onChange={(event) => updateGridSetting('color', event.target.value)}
                       type="color"
                       value={gridSettings.color}
+                    />
+                  </label>
+
+                  <div className="settings-section__header">
+                    <div>
+                      <p className="settings-section__eyebrow">Objects</p>
+                      <h3>Text Boxes</h3>
+                    </div>
+                  </div>
+
+                  <label className="settings-field">
+                    <div className="settings-field__label-row">
+                      <span>Default font size</span>
+                    </div>
+                    <select
+                      className="settings-select"
+                      onChange={(event) =>
+                        updateTextBoxDefault('fontSize', Number.parseInt(event.target.value, 10))
+                      }
+                      value={textBoxDefaults.fontSize}
+                    >
+                      <option value="14">14 px</option>
+                      <option value="16">16 px</option>
+                      <option value="18">18 px</option>
+                      <option value="24">24 px</option>
+                      <option value="32">32 px</option>
+                    </select>
+                  </label>
+
+                  <div className="settings-field">
+                    <div className="settings-field__label-row">
+                      <span>Default font style</span>
+                    </div>
+                    <div className="settings-style-row">
+                      <button
+                        aria-label="Toggle bold by default"
+                        className={`settings-style-button${
+                          textBoxDefaults.isBold ? ' is-active' : ''
+                        }`}
+                        onClick={() => updateTextBoxDefault('isBold', !textBoxDefaults.isBold)}
+                        type="button"
+                      >
+                        <BoldIcon />
+                      </button>
+                      <button
+                        aria-label="Toggle italic by default"
+                        className={`settings-style-button settings-style-button--italic${
+                          textBoxDefaults.isItalic ? ' is-active' : ''
+                        }`}
+                        onClick={() => updateTextBoxDefault('isItalic', !textBoxDefaults.isItalic)}
+                        type="button"
+                      >
+                        <ItalicIcon />
+                      </button>
+                      <button
+                        aria-label="Toggle underline by default"
+                        className={`settings-style-button settings-style-button--underline${
+                          textBoxDefaults.isUnderline ? ' is-active' : ''
+                        }`}
+                        onClick={() =>
+                          updateTextBoxDefault('isUnderline', !textBoxDefaults.isUnderline)
+                        }
+                        type="button"
+                      >
+                        <UnderlineIcon />
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="settings-field settings-field--color">
+                    <div className="settings-field__label-row">
+                      <span>Default font color</span>
+                      <strong>{textBoxDefaults.color.toUpperCase()}</strong>
+                    </div>
+                    <input
+                      onChange={(event) => updateTextBoxDefault('color', event.target.value)}
+                      type="color"
+                      value={textBoxDefaults.color}
                     />
                   </label>
                 </section>
@@ -936,7 +1787,7 @@ export function InfiniteCanvasPage() {
           <section
             aria-modal="true"
             className="canvas-modal canvas-modal--editor"
-            onClick={stopOverlayClick}
+            onClick={stopEvent}
             role="dialog"
           >
             <div className="canvas-modal__header">
@@ -988,7 +1839,7 @@ export function InfiniteCanvasPage() {
           <section
             aria-modal="true"
             className="canvas-modal canvas-modal--editor"
-            onClick={stopOverlayClick}
+            onClick={stopEvent}
             role="dialog"
           >
             <div className="canvas-modal__header">
