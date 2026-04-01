@@ -618,7 +618,7 @@ export function InfiniteCanvasPage() {
           />
           <section className="workspace-menu-panel" onClick={stopOverlayClick}>
             <div className="workspace-menu-panel__section">
-              <p className="workspace-menu-panel__eyebrow">Recent workspaces</p>
+              <p className="workspace-menu-panel__eyebrow">Recent Workspaces</p>
               <div className="workspace-menu-panel__list">
                 {recentWorkspaces.map((workspace) => (
                   <button
@@ -636,7 +636,7 @@ export function InfiniteCanvasPage() {
             </div>
 
             <button className="workspace-menu-all" onClick={() => openOverlay('workspaces')} type="button">
-              All workspaces
+              All Workspaces
             </button>
           </section>
         </>
@@ -706,12 +706,11 @@ export function InfiniteCanvasPage() {
           >
             <div className="canvas-modal__header">
               <div>
-                <p className="canvas-modal__eyebrow">Menu item</p>
                 <h2>
                   {activeOverlay === 'settings'
                     ? 'Settings'
                     : activeOverlay === 'workspaces'
-                      ? 'All workspaces'
+                      ? 'All Workspaces'
                       : helpContent.title}
                 </h2>
               </div>
@@ -942,7 +941,6 @@ export function InfiniteCanvasPage() {
           >
             <div className="canvas-modal__header">
               <div>
-                <p className="canvas-modal__eyebrow">Workspace</p>
                 <h2>{workspaceEditor.mode === 'create' ? 'New workspace' : 'Rename workspace'}</h2>
               </div>
             </div>
@@ -995,7 +993,6 @@ export function InfiniteCanvasPage() {
           >
             <div className="canvas-modal__header">
               <div>
-                <p className="canvas-modal__eyebrow">Workspace</p>
                 <h2>Delete workspace?</h2>
               </div>
             </div>

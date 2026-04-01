@@ -412,7 +412,7 @@ input:focus-visible {
   z-index: 5;
   width: min(460px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  padding: 1rem;
+  padding: 0.88rem;
   border-radius: 20px;
   text-align: left;
   display: flex;
@@ -434,7 +434,7 @@ input:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.68rem;
 }
 
 .canvas-modal__eyebrow {
@@ -448,23 +448,23 @@ input:focus-visible {
 .canvas-modal h2 {
   margin: 0;
   font-family: var(--font-heading);
-  font-size: 1.5rem;
+  font-size: 1.38rem;
   letter-spacing: -0.05em;
 }
 
 .canvas-modal__actions {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
 }
 
 .canvas-modal__toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.25rem;
+  padding: 0.22rem;
   border: 1px solid var(--border-soft);
-  border-radius: 14px;
+  border-radius: 13px;
   background: rgba(255, 255, 255, 0.03);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
@@ -475,8 +475,8 @@ input:focus-visible {
   justify-content: center;
   border: 0;
   border-radius: 10px;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   background: transparent;
   color: var(--text-soft);
@@ -498,8 +498,8 @@ input:focus-visible {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   color: var(--text);
 }
@@ -510,8 +510,8 @@ input:focus-visible {
   justify-content: center;
   border: 0;
   border-radius: 12px;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   background: linear-gradient(135deg, rgba(164, 222, 255, 0.94), rgba(158, 152, 255, 0.88));
   color: #09131d;
@@ -554,14 +554,14 @@ input:focus-visible {
 .workspace-library {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.7rem;
   align-content: start;
 }
 
 .workspace-card {
   display: grid;
   gap: 0.7rem;
-  padding: 0.9rem 0.95rem;
+  padding: 0.82rem 0.88rem;
   border-radius: 18px;
   text-align: left;
   position: relative;
@@ -602,20 +602,20 @@ input:focus-visible {
 .workspace-card__header-actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.34rem;
 }
 
 .workspace-card__header h3 {
   margin: 0;
   font-family: var(--font-heading);
-  font-size: 1rem;
+  font-size: 0.96rem;
   letter-spacing: -0.04em;
 }
 
 .workspace-card__subtitle {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   line-height: 1.4;
 }
 
@@ -626,8 +626,8 @@ input:focus-visible {
   justify-content: center;
   border: 1px solid var(--border-soft);
   border-radius: 999px;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   background: rgba(255, 255, 255, 0.035);
   color: var(--text-soft);
@@ -654,15 +654,15 @@ input:focus-visible {
 
 .workspace-card__restore {
   border: 1px solid var(--border-soft);
-  padding: 0.38rem 0.62rem;
-  font-size: 0.74rem;
+  padding: 0.34rem 0.56rem;
+  font-size: 0.7rem;
   font-weight: 600;
 }
 
 .workspace-card__members {
   display: flex;
   align-items: center;
-  padding-top: 0.1rem;
+  padding-top: 0.05rem;
 }
 
 .workspace-card__member {
@@ -679,8 +679,8 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.95rem;
-  height: 1.95rem;
+  width: 1.82rem;
+  height: 1.82rem;
   border: 1px solid rgba(171, 203, 228, 0.2);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(18, 31, 47, 0.96), rgba(10, 18, 28, 0.9));
@@ -688,7 +688,7 @@ input:focus-visible {
   box-shadow:
     0 0 0 1px rgba(5, 10, 18, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
