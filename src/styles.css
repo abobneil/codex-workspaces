@@ -219,16 +219,16 @@ input:focus-visible {
   top: 24px;
   left: 24px;
   display: grid;
-  gap: 4px;
-  width: 40px;
-  height: 40px;
+  gap: 3px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   place-content: center;
-  border-radius: 14px;
+  border-radius: 13px;
 }
 
 .canvas-icon-button span {
-  width: 14px;
+  width: 13px;
   height: 2px;
   border-radius: 999px;
   background: rgba(238, 245, 255, 0.92);
@@ -240,17 +240,17 @@ input:focus-visible {
   z-index: 5;
   display: grid;
   gap: 0.35rem;
-  min-width: 180px;
-  padding: 0.35rem;
-  border-radius: 16px;
+  min-width: 168px;
+  padding: 0.3rem;
+  border-radius: 15px;
 }
 
 .canvas-menu-item {
-  border-radius: 12px;
-  padding: 0.7rem 0.8rem;
+  border-radius: 11px;
+  padding: 0.62rem 0.72rem;
   color: var(--text);
   text-align: left;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
 }
 
 .canvas-menu-item:hover,
@@ -262,7 +262,7 @@ input:focus-visible {
   top: 24px;
   right: 24px;
   display: flex;
-  gap: 0.55rem;
+  gap: 0.45rem;
 }
 
 .workspace-menu-panel {
@@ -270,34 +270,34 @@ input:focus-visible {
   right: 24px;
   z-index: 5;
   display: grid;
-  gap: 0.75rem;
-  width: min(320px, calc(100vw - 32px));
-  padding: 0.9rem;
-  border-radius: 18px;
+  gap: 0.58rem;
+  width: min(272px, calc(100vw - 32px));
+  padding: 0.74rem;
+  border-radius: 17px;
 }
 
 .workspace-menu-panel__section {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.42rem;
 }
 
 .workspace-menu-panel__eyebrow {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .workspace-menu-panel__list {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.32rem;
 }
 
 .workspace-menu-item,
 .workspace-menu-all {
-  border-radius: 14px;
-  padding: 0.8rem 0.9rem;
+  border-radius: 13px;
+  padding: 0.6rem 0.72rem;
   text-align: left;
 }
 
@@ -305,17 +305,18 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.8rem;
   color: var(--text);
 }
 
 .workspace-menu-item span {
   font-weight: 600;
+  font-size: 0.92rem;
 }
 
 .workspace-menu-item small {
   color: var(--text-dim);
-  font-size: 0.74rem;
+  font-size: 0.7rem;
 }
 
 .workspace-menu-item.is-active,
@@ -345,11 +346,11 @@ input:focus-visible {
 
 .canvas-chip-button,
 .canvas-primary-button {
-  border-radius: 12px;
-  padding: 0.64rem 0.75rem;
+  border-radius: 11px;
+  padding: 0.56rem 0.72rem;
   color: var(--text);
   font-weight: 600;
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .canvas-primary-button {
@@ -375,9 +376,9 @@ input:focus-visible {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem;
-  border-radius: 12px;
+  gap: 0.2rem;
+  padding: 0.16rem;
+  border-radius: 11px;
   color: var(--text);
 }
 
@@ -385,22 +386,24 @@ input:focus-visible {
 .canvas-zoom-value {
   display: grid;
   place-items: center;
-  min-width: 26px;
-  height: 24px;
-  border-radius: 8px;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 7px;
 }
 
 .canvas-zoom-dock button {
   border: 0;
   background: transparent;
   color: var(--text-soft);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
 }
 
 .canvas-zoom-value {
   color: var(--text);
   font-weight: 600;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
+  min-width: 44px;
+  padding-inline: 0.28rem;
 }
 
 .canvas-modal {

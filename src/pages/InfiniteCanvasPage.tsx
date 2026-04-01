@@ -630,7 +630,6 @@ export function InfiniteCanvasPage() {
                     type="button"
                   >
                     <span>{workspace.name}</span>
-                    <small>{formatWorkspaceDate(workspace.lastModified)}</small>
                   </button>
                 ))}
               </div>
