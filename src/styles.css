@@ -244,12 +244,6 @@ input:focus-visible {
     0 16px 32px rgba(4, 10, 20, 0.26);
 }
 
-.canvas-text-box__toolbar-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
 .canvas-text-box__toolbar-field {
   display: inline-flex;
   align-items: center;
@@ -297,14 +291,6 @@ input:focus-visible {
   color: var(--text);
   font-size: 0.92rem;
   font-weight: 700;
-}
-
-.canvas-text-box__toolbar-button--italic {
-  font-style: italic;
-}
-
-.canvas-text-box__toolbar-button--underline {
-  text-decoration: underline;
 }
 
 .canvas-text-box__toolbar-button--danger {
@@ -1184,45 +1170,8 @@ input:focus-visible {
   color: var(--text);
 }
 
-.settings-style-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.settings-style-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 1px solid rgba(171, 203, 228, 0.14);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.settings-style-button--italic {
-  font-style: italic;
-}
-
-.settings-style-button--underline {
-  text-decoration: underline;
-}
-
-.settings-style-button.is-active {
-  border-color: rgba(138, 188, 255, 0.36);
-  background: linear-gradient(135deg, rgba(112, 160, 255, 0.18), rgba(119, 212, 255, 0.08));
-  color: var(--text);
-}
-
 .settings-select:hover,
-.settings-select:focus-visible,
-.settings-style-button:hover,
-.settings-style-button:focus-visible {
+.settings-select:focus-visible {
   border-color: rgba(171, 203, 228, 0.22);
   background: var(--surface-hover);
 }

@@ -38,11 +38,8 @@ interface TextBoxRecord {
   height: number
   html: string
   isPlaceholder: boolean
-  fontSize: number
+  fontFamily: string
   color: string
-  isBold: boolean
-  isItalic: boolean
-  isUnderline: boolean
 }
 
 interface ResizeState {
@@ -66,11 +63,8 @@ interface GridSettings {
 }
 
 interface TextBoxDefaults {
-  fontSize: number
+  fontFamily: string
   color: string
-  isBold: boolean
-  isItalic: boolean
-  isUnderline: boolean
 }
 
 interface WorkspaceRecord {
@@ -98,6 +92,13 @@ const TEXT_BOX_DEFAULT_WIDTH = 320
 const TEXT_BOX_DEFAULT_HEIGHT = 180
 const TEXT_BOX_MIN_WIDTH = 180
 const TEXT_BOX_MIN_HEIGHT = 120
+const TEXT_BOX_FONT_SIZE = 16
+const FONT_FAMILY_OPTIONS = [
+  { label: 'IBM Plex Sans', value: '"IBM Plex Sans", "Segoe UI", sans-serif' },
+  { label: 'Space Grotesk', value: '"Space Grotesk", "Segoe UI", sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Courier New', value: '"Courier New", monospace' },
+]
 
 type OverlayView = 'settings' | 'help' | 'workspaces' | null
 type WorkspaceLibraryView = 'active' | 'recovery'
@@ -411,18 +412,6 @@ function EmbedIcon() {
   )
 }
 
-function BoldIcon() {
-  return <span aria-hidden="true">B</span>
-}
-
-function ItalicIcon() {
-  return <span aria-hidden="true">I</span>
-}
-
-function UnderlineIcon() {
-  return <span aria-hidden="true">U</span>
-}
-
 export function InfiniteCanvasPage() {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef<PanState | null>(null)
@@ -437,7 +426,6 @@ export function InfiniteCanvasPage() {
   const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null)
   const [focusTextBoxId, setFocusTextBoxId] = useState<string | null>(null)
   const [textToolbar, setTextToolbar] = useState({
-    fontSize: '16',
     color: '#edf5ff',
   })
   const [activeOverlay, setActiveOverlay] = useState<OverlayView>(null)
@@ -452,11 +440,8 @@ export function InfiniteCanvasPage() {
     color: '#ffffff',
   })
   const [textBoxDefaults, setTextBoxDefaults] = useState<TextBoxDefaults>({
-    fontSize: 16,
+    fontFamily: FONT_FAMILY_OPTIONS[0].value,
     color: '#edf5ff',
-    isBold: false,
-    isItalic: false,
-    isUnderline: false,
   })
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -549,6 +534,22 @@ export function InfiniteCanvasPage() {
       }
     }
   }, [textBoxes])
+
+  useEffect(() => {
+    if (!selectedTextBoxId) {
+      return
+    }
+
+    const selectedTextBox = textBoxes.find((textBox) => textBox.id === selectedTextBoxId)
+
+    if (!selectedTextBox) {
+      return
+    }
+
+    setTextToolbar({
+      color: selectedTextBox.color,
+    })
+  }, [selectedTextBoxId, textBoxes])
 
   const activeWorkspaces = workspaceRecords.filter((workspace) => !workspace.deletedAt)
   const deletedWorkspaces = workspaceRecords.filter((workspace) => workspace.deletedAt)
@@ -879,11 +880,8 @@ export function InfiniteCanvasPage() {
       height: TEXT_BOX_DEFAULT_HEIGHT,
       html: '<p>Start typing...</p>',
       isPlaceholder: true,
-      fontSize: textBoxDefaults.fontSize,
+      fontFamily: textBoxDefaults.fontFamily,
       color: textBoxDefaults.color,
-      isBold: textBoxDefaults.isBold,
-      isItalic: textBoxDefaults.isItalic,
-      isUnderline: textBoxDefaults.isUnderline,
     }
 
     setTextBoxes((current) => [...current, nextTextBox])
@@ -909,6 +907,22 @@ export function InfiniteCanvasPage() {
               ...textBox,
               html,
               isPlaceholder: false,
+            }
+          : textBox,
+      ),
+    )
+  }
+
+  const updateTextBoxFormatting = (
+    textBoxId: string,
+    patch: Partial<Pick<TextBoxRecord, 'fontFamily' | 'color'>>,
+  ) => {
+    setTextBoxes((current) =>
+      current.map((textBox) =>
+        textBox.id === textBoxId
+          ? {
+              ...textBox,
+              ...patch,
             }
           : textBox,
       ),
@@ -971,6 +985,21 @@ export function InfiniteCanvasPage() {
     return editor
   }
 
+  const getSelectionRangeForTextBox = (textBoxId: string) => {
+    const editor = textEditorRefs.current[textBoxId]
+    const selection = window.getSelection()
+
+    if (editor && selection && selection.rangeCount > 0 && isSelectionInsideElement(selection, editor)) {
+      return selection.getRangeAt(0).cloneRange()
+    }
+
+    if (selectionRef.current?.textBoxId === textBoxId) {
+      return selectionRef.current.range.cloneRange()
+    }
+
+    return null
+  }
+
   const restoreSelectionForTextBox = (textBoxId: string) => {
     const savedSelection = selectionRef.current
     const selection = window.getSelection()
@@ -990,36 +1019,65 @@ export function InfiniteCanvasPage() {
     return editor
   }
 
-  const runTextCommand = (textBoxId: string, command: string, value?: string) => {
-    restoreSelectionForTextBox(textBoxId)
-    document.execCommand('styleWithCSS', false, 'true')
-    document.execCommand(command, false, value)
+  const applySelectionStyle = (
+    textBoxId: string,
+    stylePatch: Partial<Pick<CSSStyleDeclaration, 'fontFamily' | 'color'>>,
+  ) => {
+    const editor = restoreSelectionForTextBox(textBoxId)
+    const selection = window.getSelection()
+    const range = getSelectionRangeForTextBox(textBoxId)
+
+    if (!editor || !selection || !range || range.collapsed) {
+      return false
+    }
+
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    const span = document.createElement('span')
+
+    if (stylePatch.fontFamily) {
+      span.style.fontFamily = stylePatch.fontFamily
+    }
+
+    if (stylePatch.color) {
+      span.style.color = stylePatch.color
+    }
+
+    span.appendChild(range.extractContents())
+    range.insertNode(span)
+
+    const nextRange = document.createRange()
+    nextRange.selectNodeContents(span)
+    selection.removeAllRanges()
+    selection.addRange(nextRange)
     persistEditorHtml(textBoxId)
     saveSelectionForTextBox(textBoxId)
+    return true
   }
 
-  const applyFontSize = (textBoxId: string, fontSize: string) => {
-    const editor = restoreSelectionForTextBox(textBoxId)
+  const setTextSelectionColor = (textBox: TextBoxRecord, color: string) => {
+    const range = getSelectionRangeForTextBox(textBox.id)
 
-    if (!editor) {
+    setTextToolbar((current) => ({
+      ...current,
+      color,
+    }))
+
+    if (range && !range.collapsed) {
+      applySelectionStyle(textBox.id, { color })
       return
     }
 
-    document.execCommand('styleWithCSS', false, 'true')
-    document.execCommand('fontSize', false, '7')
-
-    for (const fontTag of editor.querySelectorAll('font[size=\"7\"]')) {
-      const span = document.createElement('span')
-      span.style.fontSize = `${fontSize}px`
-      span.innerHTML = fontTag.innerHTML
-      fontTag.replaceWith(span)
-    }
-
-    persistEditorHtml(textBoxId)
-    saveSelectionForTextBox(textBoxId)
+    updateTextBoxFormatting(textBox.id, { color })
   }
 
   const handleToolbarPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    event.stopPropagation()
+  }
+
+  const handleToolbarActionPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
     event.stopPropagation()
   }
 
@@ -1258,10 +1316,8 @@ export function InfiniteCanvasPage() {
                   }}
                   style={{
                     color: textBox.color,
-                    fontSize: `${textBox.fontSize}px`,
-                    fontWeight: textBox.isBold ? 700 : 400,
-                    fontStyle: textBox.isItalic ? 'italic' : 'normal',
-                    textDecoration: textBox.isUnderline ? 'underline' : 'none',
+                    fontFamily: textBox.fontFamily,
+                    fontSize: `${TEXT_BOX_FONT_SIZE}px`,
                   }}
                   suppressContentEditableWarning
                 />
@@ -1269,63 +1325,10 @@ export function InfiniteCanvasPage() {
                 {isSelected ? (
                   <>
                     <div className="canvas-text-box__toolbar" onPointerDown={handleToolbarPointerDown}>
-                      <label className="canvas-text-box__toolbar-field">
-                        <span>Size</span>
-                        <select
-                          onChange={(event) => {
-                            const nextFontSize = event.target.value
-                            setTextToolbar((current) => ({
-                              ...current,
-                              fontSize: nextFontSize,
-                            }))
-                            applyFontSize(textBox.id, nextFontSize)
-                          }}
-                          value={textToolbar.fontSize}
-                        >
-                          <option value="14">14</option>
-                          <option value="16">16</option>
-                          <option value="18">18</option>
-                          <option value="24">24</option>
-                          <option value="32">32</option>
-                        </select>
-                      </label>
-                      <div className="canvas-text-box__toolbar-group">
-                        <button
-                          aria-label="Bold"
-                          className="canvas-text-box__toolbar-button"
-                          onClick={() => runTextCommand(textBox.id, 'bold')}
-                          type="button"
-                        >
-                          B
-                        </button>
-                        <button
-                          aria-label="Italic"
-                          className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--italic"
-                          onClick={() => runTextCommand(textBox.id, 'italic')}
-                          type="button"
-                        >
-                          I
-                        </button>
-                        <button
-                          aria-label="Underline"
-                          className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--underline"
-                          onClick={() => runTextCommand(textBox.id, 'underline')}
-                          type="button"
-                        >
-                          U
-                        </button>
-                      </div>
                       <label className="canvas-text-box__toolbar-field canvas-text-box__toolbar-field--color">
                         <span>Color</span>
                         <input
-                          onChange={(event) => {
-                            const nextColor = event.target.value
-                            setTextToolbar((current) => ({
-                              ...current,
-                              color: nextColor,
-                            }))
-                            runTextCommand(textBox.id, 'foreColor', nextColor)
-                          }}
+                          onChange={(event) => setTextSelectionColor(textBox, event.target.value)}
                           type="color"
                           value={textToolbar.color}
                         />
@@ -1333,6 +1336,7 @@ export function InfiniteCanvasPage() {
                       <button
                         aria-label="Delete text box"
                         className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--danger"
+                        onPointerDown={handleToolbarActionPointerDown}
                         onClick={(event) => {
                           event.stopPropagation()
                           deleteTextBox(textBox.id)
@@ -1598,62 +1602,20 @@ export function InfiniteCanvasPage() {
 
                   <label className="settings-field">
                     <div className="settings-field__label-row">
-                      <span>Default font size</span>
+                      <span>Default font</span>
                     </div>
                     <select
                       className="settings-select"
-                      onChange={(event) =>
-                        updateTextBoxDefault('fontSize', Number.parseInt(event.target.value, 10))
-                      }
-                      value={textBoxDefaults.fontSize}
+                      onChange={(event) => updateTextBoxDefault('fontFamily', event.target.value)}
+                      value={textBoxDefaults.fontFamily}
                     >
-                      <option value="14">14 px</option>
-                      <option value="16">16 px</option>
-                      <option value="18">18 px</option>
-                      <option value="24">24 px</option>
-                      <option value="32">32 px</option>
+                      {FONT_FAMILY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
-
-                  <div className="settings-field">
-                    <div className="settings-field__label-row">
-                      <span>Default font style</span>
-                    </div>
-                    <div className="settings-style-row">
-                      <button
-                        aria-label="Toggle bold by default"
-                        className={`settings-style-button${
-                          textBoxDefaults.isBold ? ' is-active' : ''
-                        }`}
-                        onClick={() => updateTextBoxDefault('isBold', !textBoxDefaults.isBold)}
-                        type="button"
-                      >
-                        <BoldIcon />
-                      </button>
-                      <button
-                        aria-label="Toggle italic by default"
-                        className={`settings-style-button settings-style-button--italic${
-                          textBoxDefaults.isItalic ? ' is-active' : ''
-                        }`}
-                        onClick={() => updateTextBoxDefault('isItalic', !textBoxDefaults.isItalic)}
-                        type="button"
-                      >
-                        <ItalicIcon />
-                      </button>
-                      <button
-                        aria-label="Toggle underline by default"
-                        className={`settings-style-button settings-style-button--underline${
-                          textBoxDefaults.isUnderline ? ' is-active' : ''
-                        }`}
-                        onClick={() =>
-                          updateTextBoxDefault('isUnderline', !textBoxDefaults.isUnderline)
-                        }
-                        type="button"
-                      >
-                        <UnderlineIcon />
-                      </button>
-                    </div>
-                  </div>
 
                   <label className="settings-field settings-field--color">
                     <div className="settings-field__label-row">
