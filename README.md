@@ -1,38 +1,36 @@
 # Codex Workspaces
 
-A Vite + React + TypeScript prototype for a non-technical Codex product experience.
+A Vite + React + TypeScript prototype for a workspace-focused infinite canvas UI.
 
-The app is centered on two ideas:
+The current app is a single full-screen canvas experience with lightweight workspace management. It is focused on navigation, overlays, and presentation polish rather than backend integration or persistent data storage.
 
-- Workspace cards on the home page act as focused rooms for different kinds of work.
-- Each workspace opens into an endless canvas where notes, images, files, audio, websites, graphs, diagrams, and shapes can all become AI-aware objects.
+## What the app does today
 
-Instead of asking end users to learn tools, prompts, or code, the interface keeps the interaction model simple:
+- Renders a full-screen infinite canvas shell with a stylized grid background
+- Supports pointer drag panning
+- Supports wheel zooming plus zoom controls for zoom in, zoom out, and reset to 100%
+- Opens a top-left menu with `Settings` and `Help`
+- Opens a workspace switcher from the current workspace chip
+- Shows recent workspaces and a larger "All workspaces" library
+- Lets you create, rename, soft-delete, and restore workspaces
+- Includes a recovery view for deleted workspaces
+- Lets you customize the grid with visibility, boldness, and color controls
 
-- Click empty space and type a request.
-- Or record audio directly on the canvas.
-- Or select an existing object and use contextual AI actions.
+## Current behavior and limitations
 
-The server-side assumption is that Codex handles orchestration, tool creation, and media transformations behind the scenes while the front end stays calm and visual.
-
-## Prototype highlights
-
-- Responsive workspace landing page with visual cards and seeded use cases
-- Endless-canvas workspace view with pan and zoom
-- Mixed object types rendered directly on the canvas
-- Empty-space composer for text prompts
-- Browser-based audio capture for quick voice requests
-- Selection-driven interaction rail with object-specific actions
-- Image recolor workflow with recommended palettes and manual color picking
-- Seeded activity feed and product-language framing for non-technical users
+- The app renders a single page; there is no router or multi-page flow
+- Workspace data is seeded in the client and stored only in React state
+- Changes are not persisted across refreshes
+- The `Share` button is present in the UI but does not trigger any action yet
+- The canvas currently renders the viewport and grid only; it does not yet place notes, files, media, or AI-generated objects on the board
+- Help content is placeholder copy inside the app
 
 ## Tech stack
 
-- Vite
+- Vite 8
 - React 19
-- TypeScript
-- React Router
-- ESLint
+- TypeScript 5
+- ESLint 9
 
 ## Local development
 
@@ -40,6 +38,8 @@ The server-side assumption is that Codex handles orchestration, tool creation, a
 npm install
 npm run dev
 ```
+
+The app will be available through the Vite dev server shown in the terminal.
 
 ## Validation
 
@@ -50,14 +50,25 @@ npm run build
 
 ## Project structure
 
-- `src/pages/HomePage.tsx`: workspace card landing page
-- `src/pages/WorkspacePage.tsx`: endless canvas experience
-- `src/components/`: reusable UI building blocks
-- `src/data/workspaces.ts`: seeded workspace and object data
-- `PRD.md`: product requirements document for the fuller product direction
+- `src/main.tsx`: React entry point
+- `src/App.tsx`: mounts the main page component
+- `src/pages/InfiniteCanvasPage.tsx`: canvas interactions, overlays, and workspace state
+- `src/styles.css`: application styling for the canvas, menus, modals, and responsive layout
+- `src/index.css`: imports the main stylesheet
+- `public/favicon.svg`: app favicon
 
-## Product direction
+## Implementation notes
 
-This repository is a front-end prototype, not a full Codex backend implementation.
+- Initial workspaces are defined directly in `InfiniteCanvasPage.tsx`
+- The camera is centered on mount based on the viewport size
+- Zoom is clamped between `10%` and `300%`
+- Deleting a workspace moves it into a recovery state instead of removing it permanently
+- If the current workspace is deleted, the app automatically switches to another active workspace
 
-The attached [PRD](./PRD.md) explains the target audience, core workflows, object model, server-side Codex responsibilities, and the path from this prototype toward a production product.
+## Next logical improvements
+
+- Persist workspaces and canvas preferences
+- Add actual canvas objects and object-level interactions
+- Wire up sharing and collaboration behavior
+- Replace placeholder help copy with product guidance
+- Split page logic into smaller components as the UI grows
