@@ -31,7 +31,7 @@ interface WorkspaceRecord {
   id: string
   name: string
   lastModified: string
-  sharedWith: string
+  sharedWith: string[]
   deletedAt: string | null
 }
 
@@ -61,49 +61,49 @@ const initialWorkspaces: WorkspaceRecord[] = [
     id: 'northstar-lab',
     name: 'Northstar Lab',
     lastModified: '2026-03-31T20:48:00',
-    sharedWith: 'Ava, Jordan, Priya',
+    sharedWith: ['Ava Brooks', 'Jordan Lee', 'Priya Shah'],
     deletedAt: null,
   },
   {
     id: 'launch-room',
     name: 'Launch Room',
     lastModified: '2026-03-31T18:12:00',
-    sharedWith: 'Mia, Theo, Cam',
+    sharedWith: ['Mia Chen', 'Theo Carter', 'Cam Flores'],
     deletedAt: null,
   },
   {
     id: 'client-ops',
     name: 'Client Ops',
     lastModified: '2026-03-31T15:40:00',
-    sharedWith: 'Nina, Sam',
+    sharedWith: ['Nina Patel', 'Sam Rivera'],
     deletedAt: null,
   },
   {
     id: 'brand-system',
     name: 'Brand System',
     lastModified: '2026-03-30T17:05:00',
-    sharedWith: 'Drew, Elise, Max',
+    sharedWith: ['Drew Morgan', 'Elise Park', 'Max Turner'],
     deletedAt: null,
   },
   {
     id: 'roadmap-room',
     name: 'Roadmap Room',
     lastModified: '2026-03-29T14:18:00',
-    sharedWith: 'Kai, Lena, Omar',
+    sharedWith: ['Kai Bennett', 'Lena Ortiz', 'Omar Hassan'],
     deletedAt: null,
   },
   {
     id: 'research-vault',
     name: 'Research Vault',
     lastModified: '2026-03-28T11:32:00',
-    sharedWith: 'Tara, Jules',
+    sharedWith: ['Tara Ng', 'Jules Mercer'],
     deletedAt: null,
   },
   {
     id: 'partner-hub',
     name: 'Partner Hub',
     lastModified: '2026-03-26T09:20:00',
-    sharedWith: 'Rae, Dominic, Will',
+    sharedWith: ['Rae Kim', 'Dominic Price', 'Will Adams'],
     deletedAt: null,
   },
 ]
@@ -140,6 +140,19 @@ function formatWorkspaceDate(date: string) {
     day: 'numeric',
     year: 'numeric',
   })
+}
+
+function getMemberInitials(name: string) {
+  const segments = name.trim().split(/\s+/).filter(Boolean)
+
+  if (segments.length === 0) {
+    return '??'
+  }
+
+  const firstInitial = segments[0][0] ?? ''
+  const lastInitial = segments.length > 1 ? segments[segments.length - 1][0] ?? '' : segments[0][1] ?? firstInitial
+
+  return `${firstInitial}${lastInitial}`.toUpperCase()
 }
 
 function createWorkspaceId() {
@@ -478,7 +491,7 @@ export function InfiniteCanvasPage() {
         id: createWorkspaceId(),
         name: trimmedName,
         lastModified: new Date().toISOString(),
-        sharedWith: 'Only you',
+        sharedWith: ['Only You'],
         deletedAt: null,
       }
 
@@ -816,7 +829,12 @@ export function InfiniteCanvasPage() {
                         type="button"
                       >
                         <div className="workspace-card__header">
-                          <h3>{workspace.name}</h3>
+                          <div className="workspace-card__title-group">
+                            <h3>{workspace.name}</h3>
+                            <p className="workspace-card__subtitle">
+                              {formatWorkspaceDate(workspace.lastModified)}
+                            </p>
+                          </div>
                           <div className="workspace-card__header-actions">
                             <button
                               aria-label={`Rename ${workspace.name}`}
@@ -845,16 +863,19 @@ export function InfiniteCanvasPage() {
                             </button>
                           </div>
                         </div>
-                        <dl className="workspace-card__meta">
-                          <div>
-                            <dt>Last modified</dt>
-                            <dd>{formatWorkspaceDate(workspace.lastModified)}</dd>
-                          </div>
-                          <div>
-                            <dt>Shared with</dt>
-                            <dd>{workspace.sharedWith}</dd>
-                          </div>
-                        </dl>
+                        <div
+                          aria-label={`Shared with ${workspace.sharedWith.join(', ')}`}
+                          className="workspace-card__members"
+                        >
+                          {workspace.sharedWith.map((member) => (
+                            <span className="workspace-card__member" key={member}>
+                              <span className="workspace-card__member-badge" aria-hidden="true">
+                                {getMemberInitials(member)}
+                              </span>
+                              <span className="workspace-card__member-tooltip">{member}</span>
+                            </span>
+                          ))}
+                        </div>
                       </button>
                     ))}
                   </section>
@@ -864,7 +885,12 @@ export function InfiniteCanvasPage() {
                       deletedWorkspaces.map((workspace) => (
                         <article className="workspace-card workspace-card--recovery" key={workspace.id}>
                           <div className="workspace-card__header">
-                            <h3>{workspace.name}</h3>
+                            <div className="workspace-card__title-group">
+                              <h3>{workspace.name}</h3>
+                              <p className="workspace-card__subtitle">
+                                {formatWorkspaceDate(workspace.lastModified)}
+                              </p>
+                            </div>
                             <button
                               className="workspace-card__restore"
                               onClick={() => restoreWorkspace(workspace.id)}
@@ -873,16 +899,19 @@ export function InfiniteCanvasPage() {
                               Restore
                             </button>
                           </div>
-                          <dl className="workspace-card__meta">
-                            <div>
-                              <dt>Last modified</dt>
-                              <dd>{formatWorkspaceDate(workspace.lastModified)}</dd>
-                            </div>
-                            <div>
-                              <dt>Shared with</dt>
-                              <dd>{workspace.sharedWith}</dd>
-                            </div>
-                          </dl>
+                          <div
+                            aria-label={`Shared with ${workspace.sharedWith.join(', ')}`}
+                            className="workspace-card__members"
+                          >
+                            {workspace.sharedWith.map((member) => (
+                              <span className="workspace-card__member" key={member}>
+                                <span className="workspace-card__member-badge" aria-hidden="true">
+                                  {getMemberInitials(member)}
+                                </span>
+                                <span className="workspace-card__member-tooltip">{member}</span>
+                              </span>
+                            ))}
+                          </div>
                         </article>
                       ))
                     ) : (
