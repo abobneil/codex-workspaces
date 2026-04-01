@@ -56,6 +56,17 @@ interface SavedSelectionState {
   range: Range
 }
 
+interface TextBoxDragState {
+  pointerId: number
+  textBoxId: string
+  startClientX: number
+  startClientY: number
+  initialX: number
+  initialY: number
+  hasMoved: boolean
+  source: 'box' | 'editor'
+}
+
 interface GridSettings {
   visible: boolean
   boldness: number
@@ -81,6 +92,14 @@ interface WorkspaceEditorState {
   name: string
 }
 
+interface PersistedCanvasState {
+  workspaceRecords: WorkspaceRecord[]
+  currentWorkspaceId: string
+  workspaceTextBoxes: Record<string, TextBoxRecord[]>
+  gridSettings: GridSettings
+  textBoxDefaults: TextBoxDefaults
+}
+
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 3
 const GRID_SIZE = 60
@@ -93,6 +112,8 @@ const TEXT_BOX_DEFAULT_HEIGHT = 180
 const TEXT_BOX_MIN_WIDTH = 180
 const TEXT_BOX_MIN_HEIGHT = 120
 const TEXT_BOX_FONT_SIZE = 16
+const TEXT_BOX_DRAG_TOLERANCE = 6
+const LOCAL_STORAGE_KEY = 'codex-workspaces.canvas-state.v1'
 const FONT_FAMILY_OPTIONS = [
   { label: 'IBM Plex Sans', value: '"IBM Plex Sans", "Segoe UI", sans-serif' },
   { label: 'Space Grotesk', value: '"Space Grotesk", "Segoe UI", sans-serif' },
@@ -265,6 +286,24 @@ function isSelectionInsideElement(selection: Selection, element: HTMLElement) {
   return element.contains(anchorNode) && element.contains(focusNode)
 }
 
+function readPersistedCanvasState() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(LOCAL_STORAGE_KEY)
+
+    if (!rawValue) {
+      return null
+    }
+
+    return JSON.parse(rawValue) as PersistedCanvasState
+  } catch {
+    return null
+  }
+}
+
 function ActiveIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -413,41 +452,70 @@ function EmbedIcon() {
 }
 
 export function InfiniteCanvasPage() {
+  const persistedStateRef = useRef<PersistedCanvasState | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef<PanState | null>(null)
   const resizeRef = useRef<ResizeState | null>(null)
+  const textBoxDragRef = useRef<TextBoxDragState | null>(null)
   const textEditorRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const selectionRef = useRef<SavedSelectionState | null>(null)
+
+  if (persistedStateRef.current === null) {
+    persistedStateRef.current = readPersistedCanvasState()
+  }
+
+  const persistedState = persistedStateRef.current
 
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
   const [canvasActionMenu, setCanvasActionMenu] = useState<CanvasActionMenuState | null>(null)
-  const [textBoxes, setTextBoxes] = useState<TextBoxRecord[]>([])
   const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null)
   const [focusTextBoxId, setFocusTextBoxId] = useState<string | null>(null)
   const [textToolbar, setTextToolbar] = useState({
-    color: '#edf5ff',
+    color: persistedState?.textBoxDefaults.color ?? '#edf5ff',
   })
   const [activeOverlay, setActiveOverlay] = useState<OverlayView>(null)
   const [workspaceLibraryView, setWorkspaceLibraryView] = useState<WorkspaceLibraryView>('active')
-  const [workspaceRecords, setWorkspaceRecords] = useState(initialWorkspaces)
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(initialWorkspaces[0].id)
+  const [workspaceRecords, setWorkspaceRecords] = useState(
+    persistedState?.workspaceRecords ?? initialWorkspaces,
+  )
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(
+    persistedState?.currentWorkspaceId ?? initialWorkspaces[0].id,
+  )
+  const [workspaceTextBoxes, setWorkspaceTextBoxes] = useState<Record<string, TextBoxRecord[]>>(
+    persistedState?.workspaceTextBoxes ?? {},
+  )
   const [workspaceEditor, setWorkspaceEditor] = useState<WorkspaceEditorState | null>(null)
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceRecord | null>(null)
-  const [gridSettings, setGridSettings] = useState<GridSettings>({
-    visible: true,
-    boldness: 18,
-    color: '#ffffff',
-  })
-  const [textBoxDefaults, setTextBoxDefaults] = useState<TextBoxDefaults>({
-    fontFamily: FONT_FAMILY_OPTIONS[0].value,
-    color: '#edf5ff',
-  })
+  const [gridSettings, setGridSettings] = useState<GridSettings>(
+    persistedState?.gridSettings ?? {
+      visible: true,
+      boldness: 18,
+      color: '#ffffff',
+    },
+  )
+  const [textBoxDefaults, setTextBoxDefaults] = useState<TextBoxDefaults>(
+    persistedState?.textBoxDefaults ?? {
+      fontFamily: FONT_FAMILY_OPTIONS[0].value,
+      color: '#edf5ff',
+    },
+  )
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
     y: 0,
     zoom: 1,
   })
+  const activeWorkspaces = workspaceRecords.filter((workspace) => !workspace.deletedAt)
+  const deletedWorkspaces = workspaceRecords.filter((workspace) => workspace.deletedAt)
+  const currentWorkspace =
+    activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? activeWorkspaces[0]
+  const textBoxes = workspaceTextBoxes[currentWorkspaceId] ?? []
+  const recentWorkspaces = [...activeWorkspaces]
+    .sort(
+      (left, right) =>
+        new Date(right.lastModified).getTime() - new Date(left.lastModified).getTime(),
+    )
+    .slice(0, 5)
 
   useEffect(() => {
     const positionCamera = () => {
@@ -551,16 +619,39 @@ export function InfiniteCanvasPage() {
     })
   }, [selectedTextBoxId, textBoxes])
 
-  const activeWorkspaces = workspaceRecords.filter((workspace) => !workspace.deletedAt)
-  const deletedWorkspaces = workspaceRecords.filter((workspace) => workspace.deletedAt)
-  const currentWorkspace =
-    activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? activeWorkspaces[0]
-  const recentWorkspaces = [...activeWorkspaces]
-    .sort(
-      (left, right) =>
-        new Date(right.lastModified).getTime() - new Date(left.lastModified).getTime(),
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(
+      LOCAL_STORAGE_KEY,
+      JSON.stringify({
+        workspaceRecords,
+        currentWorkspaceId,
+        workspaceTextBoxes,
+        gridSettings,
+        textBoxDefaults,
+      } satisfies PersistedCanvasState),
     )
-    .slice(0, 5)
+  }, [workspaceRecords, currentWorkspaceId, workspaceTextBoxes, gridSettings, textBoxDefaults])
+
+  useEffect(() => {
+    if (!currentWorkspace) {
+      return
+    }
+
+    if (currentWorkspace.id !== currentWorkspaceId) {
+      setCurrentWorkspaceId(currentWorkspace.id)
+    }
+  }, [currentWorkspace, currentWorkspaceId])
+
+  useEffect(() => {
+    setSelectedTextBoxId(null)
+    setFocusTextBoxId(null)
+    setCanvasActionMenu(null)
+    selectionRef.current = null
+  }, [currentWorkspaceId])
 
   const updateZoom = (nextZoom: number) => {
     const rect = viewportRef.current?.getBoundingClientRect()
@@ -767,6 +858,23 @@ export function InfiniteCanvasPage() {
     }))
   }
 
+  const updateCurrentWorkspaceTextBoxes = (
+    updater: TextBoxRecord[] | ((current: TextBoxRecord[]) => TextBoxRecord[]),
+  ) => {
+    setWorkspaceTextBoxes((current) => {
+      const currentTextBoxes = current[currentWorkspaceId] ?? []
+      const nextTextBoxes =
+        typeof updater === 'function'
+          ? (updater as (current: TextBoxRecord[]) => TextBoxRecord[])(currentTextBoxes)
+          : updater
+
+      return {
+        ...current,
+        [currentWorkspaceId]: nextTextBoxes,
+      }
+    })
+  }
+
   const selectWorkspace = (workspaceId: string) => {
     setCurrentWorkspaceId(workspaceId)
     setIsWorkspaceMenuOpen(false)
@@ -884,7 +992,7 @@ export function InfiniteCanvasPage() {
       color: textBoxDefaults.color,
     }
 
-    setTextBoxes((current) => [...current, nextTextBox])
+    updateCurrentWorkspaceTextBoxes((current) => [...current, nextTextBox])
     setSelectedTextBoxId(nextTextBox.id)
     setFocusTextBoxId(nextTextBox.id)
     setCanvasActionMenu(null)
@@ -894,13 +1002,8 @@ export function InfiniteCanvasPage() {
     setCanvasActionMenu(null)
   }
 
-  const selectTextBox = (textBoxId: string) => {
-    setSelectedTextBoxId(textBoxId)
-    setCanvasActionMenu(null)
-  }
-
   const updateTextBoxHtml = (textBoxId: string, html: string) => {
-    setTextBoxes((current) =>
+    updateCurrentWorkspaceTextBoxes((current) =>
       current.map((textBox) =>
         textBox.id === textBoxId
           ? {
@@ -917,7 +1020,7 @@ export function InfiniteCanvasPage() {
     textBoxId: string,
     patch: Partial<Pick<TextBoxRecord, 'fontFamily' | 'color'>>,
   ) => {
-    setTextBoxes((current) =>
+    updateCurrentWorkspaceTextBoxes((current) =>
       current.map((textBox) =>
         textBox.id === textBoxId
           ? {
@@ -1081,8 +1184,91 @@ export function InfiniteCanvasPage() {
     event.stopPropagation()
   }
 
+  const beginTextBoxDrag =
+    (textBox: TextBoxRecord, source: TextBoxDragState['source']) =>
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (!event.ctrlKey) {
+        event.stopPropagation()
+        setSelectedTextBoxId(textBox.id)
+        setCanvasActionMenu(null)
+
+        if (source === 'editor') {
+          focusTextBoxForEditing(textBox)
+        }
+
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      textBoxDragRef.current = {
+        pointerId: event.pointerId,
+        textBoxId: textBox.id,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        initialX: textBox.x,
+        initialY: textBox.y,
+        hasMoved: false,
+        source,
+      }
+      setSelectedTextBoxId(textBox.id)
+      setCanvasActionMenu(null)
+    }
+
+  const handleTextBoxPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const dragState = textBoxDragRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const deltaX = event.clientX - dragState.startClientX
+    const deltaY = event.clientY - dragState.startClientY
+
+    if (
+      !dragState.hasMoved &&
+      (Math.abs(deltaX) > TEXT_BOX_DRAG_TOLERANCE || Math.abs(deltaY) > TEXT_BOX_DRAG_TOLERANCE)
+    ) {
+      dragState.hasMoved = true
+    }
+
+    if (!dragState.hasMoved) {
+      return
+    }
+
+    updateCurrentWorkspaceTextBoxes((current) =>
+      current.map((textBox) =>
+        textBox.id === dragState.textBoxId
+          ? {
+              ...textBox,
+              x: dragState.initialX + deltaX / viewport.zoom,
+              y: dragState.initialY + deltaY / viewport.zoom,
+            }
+          : textBox,
+      ),
+    )
+  }
+
+  const endTextBoxDrag =
+    (textBox: TextBoxRecord) =>
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const dragState = textBoxDragRef.current
+
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      textBoxDragRef.current = null
+
+      if (!dragState.hasMoved && dragState.source === 'editor') {
+        focusTextBoxForEditing(textBox)
+      }
+    }
+
   const deleteTextBox = (textBoxId: string) => {
-    setTextBoxes((current) => current.filter((textBox) => textBox.id !== textBoxId))
+    updateCurrentWorkspaceTextBoxes((current) => current.filter((textBox) => textBox.id !== textBoxId))
     setSelectedTextBoxId((current) => (current === textBoxId ? null : current))
     setFocusTextBoxId((current) => (current === textBoxId ? null : current))
     if (selectionRef.current?.textBoxId === textBoxId) {
@@ -1138,7 +1324,7 @@ export function InfiniteCanvasPage() {
       nextHeight = Math.max(TEXT_BOX_MIN_HEIGHT, initialBox.height + deltaY)
     }
 
-    setTextBoxes((current) =>
+    updateCurrentWorkspaceTextBoxes((current) =>
       current.map((textBox) =>
         textBox.id === textBoxId
           ? {
@@ -1284,10 +1470,10 @@ export function InfiniteCanvasPage() {
               <article
                 className={`canvas-text-box${isSelected ? ' is-selected' : ''}`}
                 key={textBox.id}
-                onPointerDown={(event) => {
-                  event.stopPropagation()
-                  selectTextBox(textBox.id)
-                }}
+                onPointerCancel={endTextBoxDrag(textBox)}
+                onPointerDown={beginTextBoxDrag(textBox, 'box')}
+                onPointerMove={handleTextBoxPointerMove}
+                onPointerUp={endTextBoxDrag(textBox)}
                 style={{
                   left: `${textBox.x}px`,
                   top: `${textBox.y}px`,
@@ -1304,10 +1490,10 @@ export function InfiniteCanvasPage() {
                   onKeyUp={() => saveSelectionForTextBox(textBox.id)}
                   onInput={(event) => updateTextBoxHtml(textBox.id, event.currentTarget.innerHTML)}
                   onMouseUp={() => saveSelectionForTextBox(textBox.id)}
-                  onPointerDown={(event) => {
-                    event.stopPropagation()
-                    focusTextBoxForEditing(textBox)
-                  }}
+                  onPointerCancel={endTextBoxDrag(textBox)}
+                  onPointerDown={beginTextBoxDrag(textBox, 'editor')}
+                  onPointerMove={handleTextBoxPointerMove}
+                  onPointerUp={endTextBoxDrag(textBox)}
                   ref={(node) => {
                     textEditorRefs.current[textBox.id] = node
                     if (node && node.innerHTML !== textBox.html) {
