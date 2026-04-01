@@ -150,6 +150,97 @@ function createWorkspaceId() {
   return `workspace-${Date.now()}`
 }
 
+function ActiveIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M3 7.75A2.75 2.75 0 0 1 5.75 5h4.1a2 2 0 0 1 1.42.59l1.14 1.16a2 2 0 0 0 1.43.59h4.41A2.75 2.75 0 0 1 21 10.09v6.16A2.75 2.75 0 0 1 18.25 19H5.75A2.75 2.75 0 0 1 3 16.25z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function DeletedIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M4 7h16m-10 4v5m4-5v5m-7-9V5.5A1.5 1.5 0 0 1 8.5 4h7A1.5 1.5 0 0 1 17 5.5V7m-11 0 1 11a2 2 0 0 0 2 1.82h6a2 2 0 0 0 2-1.82L18 7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="m6 6 12 12M18 6 6 18"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path
+        d="M4 20h4l10.5-10.5a1.94 1.94 0 0 0 0-2.74l-1.26-1.26a1.94 1.94 0 0 0-2.74 0L4 16z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="m13.5 6.5 4 4"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path
+        d="M5 7h14M9 7V5h6v2m-7 3v7m4-7v7m4-7v7M7 7l1 12h8l1-12"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 export function InfiniteCanvasPage() {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef<PanState | null>(null)
@@ -617,17 +708,20 @@ export function InfiniteCanvasPage() {
                   <>
                     <div className="canvas-modal__toggle" role="tablist" aria-label="Workspace views">
                       <button
+                        aria-label="Show active workspaces"
                         aria-selected={workspaceLibraryView === 'active'}
                         className={`canvas-modal__toggle-option${
                           workspaceLibraryView === 'active' ? ' is-active' : ''
                         }`}
                         onClick={() => setWorkspaceLibraryView('active')}
                         role="tab"
+                        title="Active workspaces"
                         type="button"
                       >
-                        Active
+                        <ActiveIcon />
                       </button>
                       <button
+                        aria-label="Show deleted workspaces"
                         aria-selected={workspaceLibraryView === 'recovery'}
                         className={`canvas-modal__toggle-option${
                           workspaceLibraryView === 'recovery' ? ' is-active' : ''
@@ -635,24 +729,33 @@ export function InfiniteCanvasPage() {
                         disabled={deletedWorkspaces.length === 0}
                         onClick={() => setWorkspaceLibraryView('recovery')}
                         role="tab"
+                        title="Deleted workspaces"
                         type="button"
                       >
-                        Deleted
+                        <DeletedIcon />
                       </button>
                     </div>
                     {workspaceLibraryView === 'active' ? (
                       <button
+                        aria-label="Create a new workspace"
                         className="canvas-modal__action-primary"
                         onClick={() => openWorkspaceEditor('create')}
+                        title="New workspace"
                         type="button"
                       >
-                        New workspace
+                        <PlusIcon />
                       </button>
                     ) : null}
                   </>
                 ) : null}
-                <button className="canvas-modal__close" onClick={closeAllOverlays} type="button">
-                  Close
+                <button
+                  aria-label="Close workspace library"
+                  className="canvas-modal__close"
+                  onClick={closeAllOverlays}
+                  title="Close"
+                  type="button"
+                >
+                  <CloseIcon />
                 </button>
               </div>
             </div>
@@ -715,9 +818,6 @@ export function InfiniteCanvasPage() {
                         <div className="workspace-card__header">
                           <h3>{workspace.name}</h3>
                           <div className="workspace-card__header-actions">
-                            {workspace.id === currentWorkspaceId ? (
-                              <span className="workspace-card__badge">Current</span>
-                            ) : null}
                             <button
                               aria-label={`Rename ${workspace.name}`}
                               className="workspace-card__edit"
@@ -725,9 +825,10 @@ export function InfiniteCanvasPage() {
                                 event.stopPropagation()
                                 openWorkspaceEditor('rename', workspace)
                               }}
+                              title="Rename workspace"
                               type="button"
                             >
-                              Edit
+                              <EditIcon />
                             </button>
                             <button
                               aria-label={`Delete ${workspace.name}`}
@@ -737,23 +838,10 @@ export function InfiniteCanvasPage() {
                                 event.stopPropagation()
                                 setWorkspaceDeleteTarget(workspace)
                               }}
+                              title="Delete workspace"
                               type="button"
                             >
-                              <svg
-                                aria-hidden="true"
-                                fill="none"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                width="14"
-                              >
-                                <path
-                                  d="M5 7h14M9 7V5h6v2m-7 3v7m4-7v7m4-7v7M7 7l1 12h8l1-12"
-                                  stroke="currentColor"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="1.8"
-                                />
-                              </svg>
+                              <TrashIcon />
                             </button>
                           </div>
                         </div>
