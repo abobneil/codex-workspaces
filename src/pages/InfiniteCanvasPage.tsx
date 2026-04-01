@@ -36,10 +36,25 @@ interface TextBoxRecord {
   y: number
   width: number
   height: number
+  zIndex: number
   html: string
   isPlaceholder: boolean
   fontFamily: string
   color: string
+}
+
+type ShapeKind = 'rectangle' | 'triangle' | 'circle' | 'ellipse'
+
+interface ShapeRecord {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  zIndex: number
+  kind: ShapeKind
+  fillColor: string | null
+  strokeColor: string
 }
 
 interface ResizeState {
@@ -65,6 +80,25 @@ interface TextBoxDragState {
   initialY: number
   hasMoved: boolean
   source: 'box' | 'editor'
+}
+
+interface ShapeDragState {
+  pointerId: number
+  shapeId: string
+  startClientX: number
+  startClientY: number
+  initialX: number
+  initialY: number
+  hasMoved: boolean
+}
+
+interface ShapeResizeState {
+  pointerId: number
+  shapeId: string
+  handle: ResizeHandle
+  startClientX: number
+  startClientY: number
+  initialShape: ShapeRecord
 }
 
 interface GridSettings {
@@ -96,6 +130,7 @@ interface PersistedCanvasState {
   workspaceRecords: WorkspaceRecord[]
   currentWorkspaceId: string
   workspaceTextBoxes: Record<string, TextBoxRecord[]>
+  workspaceShapes: Record<string, ShapeRecord[]>
   gridSettings: GridSettings
   textBoxDefaults: TextBoxDefaults
 }
@@ -113,6 +148,13 @@ const TEXT_BOX_MIN_WIDTH = 180
 const TEXT_BOX_MIN_HEIGHT = 120
 const TEXT_BOX_FONT_SIZE = 16
 const TEXT_BOX_DRAG_TOLERANCE = 6
+const SHAPE_DEFAULT_WIDTH = 220
+const SHAPE_DEFAULT_HEIGHT = 140
+const SHAPE_MIN_WIDTH = 36
+const SHAPE_MIN_HEIGHT = 36
+const SHAPE_STROKE_WIDTH = 3
+const SHAPE_DEFAULT_FILL_COLOR = '#1d425f'
+const SHAPE_DEFAULT_STROKE_COLOR = '#a4deff'
 const LOCAL_STORAGE_KEY = 'codex-workspaces.canvas-state.v1'
 const FONT_FAMILY_OPTIONS = [
   { label: 'IBM Plex Sans', value: '"IBM Plex Sans", "Segoe UI", sans-serif' },
@@ -120,6 +162,8 @@ const FONT_FAMILY_OPTIONS = [
   { label: 'Georgia', value: 'Georgia, serif' },
   { label: 'Courier New', value: '"Courier New", monospace' },
 ]
+const EMPTY_TEXT_BOXES: TextBoxRecord[] = []
+const EMPTY_SHAPES: ShapeRecord[] = []
 
 type OverlayView = 'settings' | 'help' | 'workspaces' | null
 type WorkspaceLibraryView = 'active' | 'recovery'
@@ -248,6 +292,81 @@ function createTextBoxId() {
   return `textbox-${Date.now()}`
 }
 
+function createShapeId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `shape-${Date.now()}`
+}
+
+function normalizeShapeDimensions(kind: ShapeKind, width: number, height: number) {
+  if (kind === 'circle') {
+    const size = Math.max(width, height)
+
+    return {
+      width: size,
+      height: size,
+    }
+  }
+
+  return { width, height }
+}
+
+function compareByZIndex(left: { zIndex: number; order: number }, right: { zIndex: number; order: number }) {
+  if (left.zIndex !== right.zIndex) {
+    return left.zIndex - right.zIndex
+  }
+
+  return left.order - right.order
+}
+
+function resizeShapeBounds(
+  shape: ShapeRecord,
+  handle: ResizeHandle,
+  deltaX: number,
+  deltaY: number,
+) {
+  if (shape.kind === 'circle') {
+    const widthDelta = handle === 'nw' || handle === 'sw' ? -deltaX : deltaX
+    const heightDelta = handle === 'nw' || handle === 'ne' ? -deltaY : deltaY
+    const nextSize = Math.max(SHAPE_MIN_WIDTH, shape.width + widthDelta, shape.height + heightDelta)
+
+    return {
+      x: handle === 'nw' || handle === 'sw' ? shape.x + (shape.width - nextSize) : shape.x,
+      y: handle === 'nw' || handle === 'ne' ? shape.y + (shape.height - nextSize) : shape.y,
+      width: nextSize,
+      height: nextSize,
+    }
+  }
+
+  let nextX = shape.x
+  let nextY = shape.y
+  let nextWidth = shape.width
+  let nextHeight = shape.height
+
+  if (handle === 'nw' || handle === 'sw') {
+    nextWidth = Math.max(SHAPE_MIN_WIDTH, shape.width - deltaX)
+    nextX = shape.x + (shape.width - nextWidth)
+  } else {
+    nextWidth = Math.max(SHAPE_MIN_WIDTH, shape.width + deltaX)
+  }
+
+  if (handle === 'nw' || handle === 'ne') {
+    nextHeight = Math.max(SHAPE_MIN_HEIGHT, shape.height - deltaY)
+    nextY = shape.y + (shape.height - nextHeight)
+  } else {
+    nextHeight = Math.max(SHAPE_MIN_HEIGHT, shape.height + deltaY)
+  }
+
+  return {
+    x: nextX,
+    y: nextY,
+    width: nextWidth,
+    height: nextHeight,
+  }
+}
+
 function placeCaretAtEnd(element: HTMLElement) {
   const selection = window.getSelection()
 
@@ -302,6 +421,20 @@ function readPersistedCanvasState() {
   } catch {
     return null
   }
+}
+
+function getInitialCurrentWorkspaceId(persistedState: PersistedCanvasState | null) {
+  const workspaceRecords = persistedState?.workspaceRecords ?? initialWorkspaces
+  const activeWorkspaces = workspaceRecords.filter((workspace) => !workspace.deletedAt)
+
+  if (activeWorkspaces.length === 0) {
+    return workspaceRecords[0]?.id ?? initialWorkspaces[0].id
+  }
+
+  const persistedWorkspaceId = persistedState?.currentWorkspaceId
+  const matchingWorkspace = activeWorkspaces.find((workspace) => workspace.id === persistedWorkspaceId)
+
+  return matchingWorkspace?.id ?? activeWorkspaces[0].id
 }
 
 function ActiveIcon() {
@@ -452,24 +585,21 @@ function EmbedIcon() {
 }
 
 export function InfiniteCanvasPage() {
-  const persistedStateRef = useRef<PersistedCanvasState | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef<PanState | null>(null)
   const resizeRef = useRef<ResizeState | null>(null)
   const textBoxDragRef = useRef<TextBoxDragState | null>(null)
+  const shapeDragRef = useRef<ShapeDragState | null>(null)
+  const shapeResizeRef = useRef<ShapeResizeState | null>(null)
   const textEditorRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const selectionRef = useRef<SavedSelectionState | null>(null)
-
-  if (persistedStateRef.current === null) {
-    persistedStateRef.current = readPersistedCanvasState()
-  }
-
-  const persistedState = persistedStateRef.current
+  const [persistedState] = useState<PersistedCanvasState | null>(() => readPersistedCanvasState())
 
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
   const [canvasActionMenu, setCanvasActionMenu] = useState<CanvasActionMenuState | null>(null)
   const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null)
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
   const [focusTextBoxId, setFocusTextBoxId] = useState<string | null>(null)
   const [textToolbar, setTextToolbar] = useState({
     color: persistedState?.textBoxDefaults.color ?? '#edf5ff',
@@ -479,11 +609,14 @@ export function InfiniteCanvasPage() {
   const [workspaceRecords, setWorkspaceRecords] = useState(
     persistedState?.workspaceRecords ?? initialWorkspaces,
   )
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(
-    persistedState?.currentWorkspaceId ?? initialWorkspaces[0].id,
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() =>
+    getInitialCurrentWorkspaceId(persistedState),
   )
   const [workspaceTextBoxes, setWorkspaceTextBoxes] = useState<Record<string, TextBoxRecord[]>>(
     persistedState?.workspaceTextBoxes ?? {},
+  )
+  const [workspaceShapes, setWorkspaceShapes] = useState<Record<string, ShapeRecord[]>>(
+    persistedState?.workspaceShapes ?? {},
   )
   const [workspaceEditor, setWorkspaceEditor] = useState<WorkspaceEditorState | null>(null)
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceRecord | null>(null)
@@ -509,13 +642,34 @@ export function InfiniteCanvasPage() {
   const deletedWorkspaces = workspaceRecords.filter((workspace) => workspace.deletedAt)
   const currentWorkspace =
     activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? activeWorkspaces[0]
-  const textBoxes = workspaceTextBoxes[currentWorkspaceId] ?? []
+  const textBoxes = workspaceTextBoxes[currentWorkspaceId] ?? EMPTY_TEXT_BOXES
+  const shapes = workspaceShapes[currentWorkspaceId] ?? EMPTY_SHAPES
   const recentWorkspaces = [...activeWorkspaces]
     .sort(
       (left, right) =>
         new Date(right.lastModified).getTime() - new Date(left.lastModified).getTime(),
     )
     .slice(0, 5)
+
+  const getResolvedShapeZIndex = (shape: ShapeRecord, index: number) => shape.zIndex ?? index
+  const getResolvedTextBoxZIndex = (textBox: TextBoxRecord, index: number) =>
+    textBox.zIndex ?? shapes.length + index
+
+  const getOrderedCanvasObjects = () =>
+    [
+      ...shapes.map((shape, index) => ({
+        id: shape.id,
+        kind: 'shape' as const,
+        zIndex: getResolvedShapeZIndex(shape, index),
+        order: index,
+      })),
+      ...textBoxes.map((textBox, index) => ({
+        id: textBox.id,
+        kind: 'textBox' as const,
+        zIndex: getResolvedTextBoxZIndex(textBox, index),
+        order: shapes.length + index,
+      })),
+    ].sort(compareByZIndex)
 
   useEffect(() => {
     const positionCamera = () => {
@@ -554,6 +708,7 @@ export function InfiniteCanvasPage() {
       setIsWorkspaceMenuOpen(false)
       setCanvasActionMenu(null)
       setSelectedTextBoxId(null)
+      setSelectedShapeId(null)
       setWorkspaceEditor(null)
       setWorkspaceDeleteTarget(null)
       setActiveOverlay(null)
@@ -604,22 +759,6 @@ export function InfiniteCanvasPage() {
   }, [textBoxes])
 
   useEffect(() => {
-    if (!selectedTextBoxId) {
-      return
-    }
-
-    const selectedTextBox = textBoxes.find((textBox) => textBox.id === selectedTextBoxId)
-
-    if (!selectedTextBox) {
-      return
-    }
-
-    setTextToolbar({
-      color: selectedTextBox.color,
-    })
-  }, [selectedTextBoxId, textBoxes])
-
-  useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
@@ -630,28 +769,19 @@ export function InfiniteCanvasPage() {
         workspaceRecords,
         currentWorkspaceId,
         workspaceTextBoxes,
+        workspaceShapes,
         gridSettings,
         textBoxDefaults,
       } satisfies PersistedCanvasState),
     )
-  }, [workspaceRecords, currentWorkspaceId, workspaceTextBoxes, gridSettings, textBoxDefaults])
-
-  useEffect(() => {
-    if (!currentWorkspace) {
-      return
-    }
-
-    if (currentWorkspace.id !== currentWorkspaceId) {
-      setCurrentWorkspaceId(currentWorkspace.id)
-    }
-  }, [currentWorkspace, currentWorkspaceId])
-
-  useEffect(() => {
-    setSelectedTextBoxId(null)
-    setFocusTextBoxId(null)
-    setCanvasActionMenu(null)
-    selectionRef.current = null
-  }, [currentWorkspaceId])
+  }, [
+    workspaceRecords,
+    currentWorkspaceId,
+    workspaceTextBoxes,
+    workspaceShapes,
+    gridSettings,
+    textBoxDefaults,
+  ])
 
   const updateZoom = (nextZoom: number) => {
     const rect = viewportRef.current?.getBoundingClientRect()
@@ -731,6 +861,7 @@ export function InfiniteCanvasPage() {
     }
 
     setSelectedTextBoxId(null)
+    setSelectedShapeId(null)
     event.currentTarget.setPointerCapture(event.pointerId)
     panRef.current = {
       pointerId: event.pointerId,
@@ -878,7 +1009,42 @@ export function InfiniteCanvasPage() {
     })
   }
 
+  const updateTextBox = (
+    textBoxId: string,
+    updater: (textBox: TextBoxRecord) => TextBoxRecord,
+  ) => {
+    updateCurrentWorkspaceTextBoxes((current) =>
+      current.map((textBox) => (textBox.id === textBoxId ? updater(textBox) : textBox)),
+    )
+  }
+
+  const updateCurrentWorkspaceShapes = (
+    updater: ShapeRecord[] | ((current: ShapeRecord[]) => ShapeRecord[]),
+  ) => {
+    setWorkspaceShapes((current) => {
+      const currentShapes = current[currentWorkspaceId] ?? []
+      const nextShapes =
+        typeof updater === 'function'
+          ? (updater as (current: ShapeRecord[]) => ShapeRecord[])(currentShapes)
+          : updater
+
+      return {
+        ...current,
+        [currentWorkspaceId]: nextShapes,
+      }
+    })
+  }
+
+  const clearCanvasSelection = () => {
+    setSelectedTextBoxId(null)
+    setSelectedShapeId(null)
+    setFocusTextBoxId(null)
+    setCanvasActionMenu(null)
+    selectionRef.current = null
+  }
+
   const selectWorkspace = (workspaceId: string) => {
+    clearCanvasSelection()
     setCurrentWorkspaceId(workspaceId)
     setIsWorkspaceMenuOpen(false)
     setWorkspaceEditor(null)
@@ -915,6 +1081,7 @@ export function InfiniteCanvasPage() {
       }
 
       setWorkspaceRecords((current) => [nextWorkspace, ...current])
+      clearCanvasSelection()
       setCurrentWorkspaceId(nextWorkspace.id)
       closeAllOverlays()
       return
@@ -957,6 +1124,7 @@ export function InfiniteCanvasPage() {
       )
 
       if (fallbackWorkspace) {
+        clearCanvasSelection()
         setCurrentWorkspaceId(fallbackWorkspace.id)
       }
     }
@@ -983,12 +1151,16 @@ export function InfiniteCanvasPage() {
       return
     }
 
+    const orderedObjects = getOrderedCanvasObjects()
+    const highestZIndex =
+      orderedObjects.length > 0 ? orderedObjects[orderedObjects.length - 1].zIndex : 0
     const nextTextBox: TextBoxRecord = {
       id: createTextBoxId(),
       x: canvasActionMenu.worldX,
       y: canvasActionMenu.worldY,
       width: TEXT_BOX_DEFAULT_WIDTH,
       height: TEXT_BOX_DEFAULT_HEIGHT,
+      zIndex: highestZIndex + 1,
       html: '<p>Start typing...</p>',
       isPlaceholder: true,
       fontFamily: textBoxDefaults.fontFamily,
@@ -997,7 +1169,40 @@ export function InfiniteCanvasPage() {
 
     updateCurrentWorkspaceTextBoxes((current) => [...current, nextTextBox])
     setSelectedTextBoxId(nextTextBox.id)
+    setSelectedShapeId(null)
     setFocusTextBoxId(nextTextBox.id)
+    setTextToolbar({
+      color: nextTextBox.color,
+    })
+    setCanvasActionMenu(null)
+  }
+
+  const createShape = (kind: ShapeKind) => {
+    if (!canvasActionMenu) {
+      return
+    }
+
+    const orderedObjects = getOrderedCanvasObjects()
+    const highestZIndex =
+      orderedObjects.length > 0 ? orderedObjects[orderedObjects.length - 1].zIndex : 0
+    const dimensions = normalizeShapeDimensions(kind, SHAPE_DEFAULT_WIDTH, SHAPE_DEFAULT_HEIGHT)
+    const nextShape: ShapeRecord = {
+      id: createShapeId(),
+      x: canvasActionMenu.worldX,
+      y: canvasActionMenu.worldY,
+      width: dimensions.width,
+      height: dimensions.height,
+      zIndex: highestZIndex + 1,
+      kind,
+      fillColor: SHAPE_DEFAULT_FILL_COLOR,
+      strokeColor: SHAPE_DEFAULT_STROKE_COLOR,
+    }
+
+    updateCurrentWorkspaceShapes((current) => [...current, nextShape])
+    setSelectedShapeId(nextShape.id)
+    setSelectedTextBoxId(null)
+    setFocusTextBoxId(null)
+    selectionRef.current = null
     setCanvasActionMenu(null)
   }
 
@@ -1023,20 +1228,18 @@ export function InfiniteCanvasPage() {
     textBoxId: string,
     patch: Partial<Pick<TextBoxRecord, 'fontFamily' | 'color'>>,
   ) => {
-    updateCurrentWorkspaceTextBoxes((current) =>
-      current.map((textBox) =>
-        textBox.id === textBoxId
-          ? {
-              ...textBox,
-              ...patch,
-            }
-          : textBox,
-      ),
-    )
+    updateTextBox(textBoxId, (textBox) => ({
+      ...textBox,
+      ...patch,
+    }))
   }
 
   const focusTextBoxForEditing = (textBox: TextBoxRecord) => {
     setSelectedTextBoxId(textBox.id)
+    setSelectedShapeId(null)
+    setTextToolbar({
+      color: textBox.color,
+    })
     setCanvasActionMenu(null)
 
     const editor = textEditorRefs.current[textBox.id]
@@ -1193,6 +1396,10 @@ export function InfiniteCanvasPage() {
       if (!event.ctrlKey) {
         event.stopPropagation()
         setSelectedTextBoxId(textBox.id)
+        setSelectedShapeId(null)
+        setTextToolbar({
+          color: textBox.color,
+        })
         setCanvasActionMenu(null)
 
         if (source === 'editor') {
@@ -1216,6 +1423,10 @@ export function InfiniteCanvasPage() {
         source,
       }
       setSelectedTextBoxId(textBox.id)
+      setSelectedShapeId(null)
+      setTextToolbar({
+        color: textBox.color,
+      })
       setCanvasActionMenu(null)
     }
 
@@ -1353,6 +1564,227 @@ export function InfiniteCanvasPage() {
     resizeRef.current = null
   }
 
+  const updateShape = (
+    shapeId: string,
+    updater: (shape: ShapeRecord) => ShapeRecord,
+  ) => {
+    updateCurrentWorkspaceShapes((current) =>
+      current.map((shape) => (shape.id === shapeId ? updater(shape) : shape)),
+    )
+  }
+
+  const updateShapeColors = (
+    shapeId: string,
+    patch: Partial<Pick<ShapeRecord, 'fillColor' | 'strokeColor'>>,
+  ) => {
+    updateShape(shapeId, (shape) => ({
+      ...shape,
+      ...patch,
+    }))
+  }
+
+  const moveCanvasObjectInLayer = (
+    objectId: string,
+    objectKind: 'shape' | 'textBox',
+    direction: 'backward' | 'forward' | 'back' | 'front',
+  ) => {
+    const orderedObjects = getOrderedCanvasObjects()
+    const targetIndex = orderedObjects.findIndex(
+      (entry) => entry.id === objectId && entry.kind === objectKind,
+    )
+
+    if (targetIndex === -1) {
+      return
+    }
+
+    const target = orderedObjects[targetIndex]
+
+    if (direction === 'front') {
+      const highestZIndex = orderedObjects[orderedObjects.length - 1]?.zIndex ?? target.zIndex
+      const nextZIndex = highestZIndex + 1
+
+      if (objectKind === 'shape') {
+        updateShape(objectId, (shape) => ({ ...shape, zIndex: nextZIndex }))
+      } else {
+        updateTextBox(objectId, (textBox) => ({ ...textBox, zIndex: nextZIndex }))
+      }
+      return
+    }
+
+    if (direction === 'back') {
+      const lowestZIndex = orderedObjects[0]?.zIndex ?? target.zIndex
+      const nextZIndex = lowestZIndex - 1
+
+      if (objectKind === 'shape') {
+        updateShape(objectId, (shape) => ({ ...shape, zIndex: nextZIndex }))
+      } else {
+        updateTextBox(objectId, (textBox) => ({ ...textBox, zIndex: nextZIndex }))
+      }
+      return
+    }
+
+    const swapIndex = direction === 'forward' ? targetIndex + 1 : targetIndex - 1
+    const swapTarget = orderedObjects[swapIndex]
+
+    if (!swapTarget) {
+      return
+    }
+
+    if (objectKind === 'shape') {
+      updateShape(objectId, (shape) => ({ ...shape, zIndex: swapTarget.zIndex }))
+    } else {
+      updateTextBox(objectId, (textBox) => ({ ...textBox, zIndex: swapTarget.zIndex }))
+    }
+
+    if (swapTarget.kind === 'shape') {
+      updateShape(swapTarget.id, (shape) => ({ ...shape, zIndex: target.zIndex }))
+    } else {
+      updateTextBox(swapTarget.id, (textBox) => ({ ...textBox, zIndex: target.zIndex }))
+    }
+  }
+
+  const updateShapeKind = (shapeId: string, kind: ShapeKind) => {
+    updateShape(shapeId, (shape) => {
+      const dimensions = normalizeShapeDimensions(kind, shape.width, shape.height)
+
+      return {
+        ...shape,
+        kind,
+        width: dimensions.width,
+        height: dimensions.height,
+      }
+    })
+  }
+
+  const beginShapeDrag =
+    (shape: ShapeRecord) =>
+    (event: ReactPointerEvent<HTMLElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      shapeDragRef.current = {
+        pointerId: event.pointerId,
+        shapeId: shape.id,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        initialX: shape.x,
+        initialY: shape.y,
+        hasMoved: false,
+      }
+      setSelectedShapeId(shape.id)
+      setSelectedTextBoxId(null)
+      setFocusTextBoxId(null)
+      selectionRef.current = null
+      setCanvasActionMenu(null)
+    }
+
+  const handleShapePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const dragState = shapeDragRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const deltaX = event.clientX - dragState.startClientX
+    const deltaY = event.clientY - dragState.startClientY
+
+    if (
+      !dragState.hasMoved &&
+      (Math.abs(deltaX) > TEXT_BOX_DRAG_TOLERANCE || Math.abs(deltaY) > TEXT_BOX_DRAG_TOLERANCE)
+    ) {
+      dragState.hasMoved = true
+    }
+
+    if (!dragState.hasMoved) {
+      return
+    }
+
+    updateCurrentWorkspaceShapes((current) =>
+      current.map((shape) =>
+        shape.id === dragState.shapeId
+          ? {
+              ...shape,
+              x: dragState.initialX + deltaX / viewport.zoom,
+              y: dragState.initialY + deltaY / viewport.zoom,
+            }
+          : shape,
+      ),
+    )
+  }
+
+  const endShapeDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const dragState = shapeDragRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    shapeDragRef.current = null
+  }
+
+  const deleteShape = (shapeId: string) => {
+    updateCurrentWorkspaceShapes((current) => current.filter((shape) => shape.id !== shapeId))
+    setSelectedShapeId((current) => (current === shapeId ? null : current))
+  }
+
+  const beginResizeShape =
+    (shape: ShapeRecord, handle: ResizeHandle) =>
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      shapeResizeRef.current = {
+        pointerId: event.pointerId,
+        shapeId: shape.id,
+        handle,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        initialShape: shape,
+      }
+      setSelectedShapeId(shape.id)
+      setSelectedTextBoxId(null)
+    }
+
+  const handleShapeResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resizeState = shapeResizeRef.current
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const deltaX = (event.clientX - resizeState.startClientX) / viewport.zoom
+    const deltaY = (event.clientY - resizeState.startClientY) / viewport.zoom
+    const nextBounds = resizeShapeBounds(
+      resizeState.initialShape,
+      resizeState.handle,
+      deltaX,
+      deltaY,
+    )
+
+    updateCurrentWorkspaceShapes((current) =>
+      current.map((shape) =>
+        shape.id === resizeState.shapeId
+          ? {
+              ...shape,
+              ...nextBounds,
+            }
+          : shape,
+      ),
+    )
+  }
+
+  const endShapeResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resizeState = shapeResizeRef.current
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    shapeResizeRef.current = null
+  }
+
   return (
     <main className="infinite-canvas-page">
       <button
@@ -1467,7 +1899,239 @@ export function InfiniteCanvasPage() {
             transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
           }}
         >
-          {textBoxes.map((textBox) => {
+          {shapes.map((shape, index) => {
+            const isSelected = shape.id === selectedShapeId
+            const rectangleWidth = Math.max(shape.width - SHAPE_STROKE_WIDTH, 0)
+            const rectangleHeight = Math.max(shape.height - SHAPE_STROKE_WIDTH, 0)
+            const circleRadius = Math.max(shape.width / 2 - SHAPE_STROKE_WIDTH / 2, 0)
+            const trianglePoints = `${shape.width / 2},${SHAPE_STROKE_WIDTH / 2} ${shape.width - SHAPE_STROKE_WIDTH / 2},${shape.height - SHAPE_STROKE_WIDTH / 2} ${SHAPE_STROKE_WIDTH / 2},${shape.height - SHAPE_STROKE_WIDTH / 2}`
+
+            return (
+              <article
+                className={`canvas-shape${isSelected ? ' is-selected' : ''}`}
+                key={shape.id}
+                onPointerCancel={endShapeDrag}
+                onPointerDown={beginShapeDrag(shape)}
+                onPointerMove={handleShapePointerMove}
+                onPointerUp={endShapeDrag}
+                style={{
+                  left: `${shape.x}px`,
+                  top: `${shape.y}px`,
+                  width: `${shape.width}px`,
+                  height: `${shape.height}px`,
+                  zIndex: getResolvedShapeZIndex(shape, index),
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  className="canvas-shape__svg"
+                  preserveAspectRatio="none"
+                  viewBox={`0 0 ${shape.width} ${shape.height}`}
+                >
+                  {shape.kind === 'rectangle' ? (
+                    <rect
+                      fill={shape.fillColor ?? 'none'}
+                      height={rectangleHeight}
+                      rx="20"
+                      stroke={shape.strokeColor}
+                      strokeWidth={SHAPE_STROKE_WIDTH}
+                      width={rectangleWidth}
+                      x={SHAPE_STROKE_WIDTH / 2}
+                      y={SHAPE_STROKE_WIDTH / 2}
+                    />
+                  ) : null}
+                  {shape.kind === 'circle' ? (
+                    <circle
+                      cx={shape.width / 2}
+                      cy={shape.height / 2}
+                      fill={shape.fillColor ?? 'none'}
+                      r={circleRadius}
+                      stroke={shape.strokeColor}
+                      strokeWidth={SHAPE_STROKE_WIDTH}
+                    />
+                  ) : null}
+                  {shape.kind === 'ellipse' ? (
+                    <ellipse
+                      cx={shape.width / 2}
+                      cy={shape.height / 2}
+                      fill={shape.fillColor ?? 'none'}
+                      rx={Math.max(shape.width / 2 - SHAPE_STROKE_WIDTH / 2, 0)}
+                      ry={Math.max(shape.height / 2 - SHAPE_STROKE_WIDTH / 2, 0)}
+                      stroke={shape.strokeColor}
+                      strokeWidth={SHAPE_STROKE_WIDTH}
+                    />
+                  ) : null}
+                  {shape.kind === 'triangle' ? (
+                    <polygon
+                      fill={shape.fillColor ?? 'none'}
+                      points={trianglePoints}
+                      stroke={shape.strokeColor}
+                      strokeLinejoin="round"
+                      strokeWidth={SHAPE_STROKE_WIDTH}
+                    />
+                  ) : null}
+                </svg>
+
+                {isSelected ? (
+                  <>
+                    <div className="canvas-text-box__toolbar" onPointerDown={handleToolbarPointerDown}>
+                      <label className="canvas-text-box__toolbar-field">
+                        <span>Shape</span>
+                        <select
+                          aria-label="Shape type"
+                          onChange={(event) => updateShapeKind(shape.id, event.target.value as ShapeKind)}
+                          value={shape.kind}
+                        >
+                          <option value="rectangle">Rectangle</option>
+                          <option value="triangle">Triangle</option>
+                          <option value="circle">Circle</option>
+                          <option value="ellipse">Ellipse</option>
+                        </select>
+                      </label>
+                      <label className="canvas-text-box__toolbar-field canvas-text-box__toolbar-field--color">
+                        <span>Fill</span>
+                        <input
+                          onChange={(event) => updateShapeColors(shape.id, { fillColor: event.target.value })}
+                          type="color"
+                          value={shape.fillColor ?? SHAPE_DEFAULT_FILL_COLOR}
+                        />
+                      </label>
+                      <button
+                        aria-label={shape.fillColor === null ? 'Restore shape fill' : 'Remove shape fill'}
+                        className={`canvas-text-box__toolbar-button${
+                          shape.fillColor === null ? ' canvas-text-box__toolbar-button--active' : ''
+                        }`}
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          updateShapeColors(shape.id, {
+                            fillColor: shape.fillColor === null ? SHAPE_DEFAULT_FILL_COLOR : null,
+                          })
+                        }}
+                        title={shape.fillColor === null ? 'Restore fill' : 'No fill'}
+                        type="button"
+                      >
+                        None
+                      </button>
+                      <label className="canvas-text-box__toolbar-field canvas-text-box__toolbar-field--color">
+                        <span>Outline</span>
+                        <input
+                          onChange={(event) =>
+                            updateShapeColors(shape.id, { strokeColor: event.target.value })
+                          }
+                          type="color"
+                          value={shape.strokeColor}
+                        />
+                      </label>
+                      <button
+                        aria-label="Delete shape"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--danger"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          deleteShape(shape.id)
+                        }}
+                        title="Delete"
+                        type="button"
+                      >
+                        <TrashIcon />
+                      </button>
+                      <button
+                        aria-label="Send shape to back"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(shape.id, 'shape', 'back')
+                        }}
+                        title="Send to back"
+                        type="button"
+                      >
+                        Back
+                      </button>
+                      <button
+                        aria-label="Send shape backward"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(shape.id, 'shape', 'backward')
+                        }}
+                        title="Send backward"
+                        type="button"
+                      >
+                        Down
+                      </button>
+                      <button
+                        aria-label="Bring shape forward"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(shape.id, 'shape', 'forward')
+                        }}
+                        title="Bring forward"
+                        type="button"
+                      >
+                        Up
+                      </button>
+                      <button
+                        aria-label="Bring shape to front"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(shape.id, 'shape', 'front')
+                        }}
+                        title="Bring to front"
+                        type="button"
+                      >
+                        Front
+                      </button>
+                    </div>
+                    <button
+                      aria-label="Resize shape from top left"
+                      className="canvas-text-box__handle canvas-text-box__handle--nw"
+                      onPointerCancel={endShapeResize}
+                      onPointerDown={beginResizeShape(shape, 'nw')}
+                      onPointerMove={handleShapeResizePointerMove}
+                      onPointerUp={endShapeResize}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize shape from top right"
+                      className="canvas-text-box__handle canvas-text-box__handle--ne"
+                      onPointerCancel={endShapeResize}
+                      onPointerDown={beginResizeShape(shape, 'ne')}
+                      onPointerMove={handleShapeResizePointerMove}
+                      onPointerUp={endShapeResize}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize shape from bottom left"
+                      className="canvas-text-box__handle canvas-text-box__handle--sw"
+                      onPointerCancel={endShapeResize}
+                      onPointerDown={beginResizeShape(shape, 'sw')}
+                      onPointerMove={handleShapeResizePointerMove}
+                      onPointerUp={endShapeResize}
+                      type="button"
+                    />
+                    <button
+                      aria-label="Resize shape from bottom right"
+                      className="canvas-text-box__handle canvas-text-box__handle--se"
+                      onPointerCancel={endShapeResize}
+                      onPointerDown={beginResizeShape(shape, 'se')}
+                      onPointerMove={handleShapeResizePointerMove}
+                      onPointerUp={endShapeResize}
+                      type="button"
+                    />
+                  </>
+                ) : null}
+              </article>
+            )
+          })}
+
+          {textBoxes.map((textBox, index) => {
             const isSelected = textBox.id === selectedTextBoxId
 
             return (
@@ -1483,6 +2147,7 @@ export function InfiniteCanvasPage() {
                   top: `${textBox.y}px`,
                   width: `${textBox.width}px`,
                   height: `${textBox.height}px`,
+                  zIndex: getResolvedTextBoxZIndex(textBox, index),
                 }}
               >
                 <div
@@ -1535,6 +2200,58 @@ export function InfiniteCanvasPage() {
                         type="button"
                       >
                         <TrashIcon />
+                      </button>
+                      <button
+                        aria-label="Send text box to back"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(textBox.id, 'textBox', 'back')
+                        }}
+                        title="Send to back"
+                        type="button"
+                      >
+                        Back
+                      </button>
+                      <button
+                        aria-label="Send text box backward"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(textBox.id, 'textBox', 'backward')
+                        }}
+                        title="Send backward"
+                        type="button"
+                      >
+                        Down
+                      </button>
+                      <button
+                        aria-label="Bring text box forward"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(textBox.id, 'textBox', 'forward')
+                        }}
+                        title="Bring forward"
+                        type="button"
+                      >
+                        Up
+                      </button>
+                      <button
+                        aria-label="Bring text box to front"
+                        className="canvas-text-box__toolbar-button canvas-text-box__toolbar-button--wide"
+                        onPointerDown={handleToolbarActionPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          moveCanvasObjectInLayer(textBox.id, 'textBox', 'front')
+                        }}
+                        title="Bring to front"
+                        type="button"
+                      >
+                        Front
                       </button>
                     </div>
                     <button
@@ -1605,7 +2322,7 @@ export function InfiniteCanvasPage() {
             <button
               aria-label="Insert shape"
               className="canvas-action-menu__item"
-              onClick={selectCanvasAction}
+              onClick={() => createShape('rectangle')}
               role="menuitem"
               title="Shapes"
               type="button"
