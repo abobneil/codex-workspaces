@@ -190,6 +190,7 @@ input:focus-visible {
     0 0 0 1px rgba(121, 174, 255, 0.32),
     0 20px 42px rgba(4, 10, 20, 0.3),
     0 0 28px rgba(121, 174, 255, 0.14);
+  cursor: text;
 }
 
 .canvas-text-box__editor {
@@ -206,6 +207,7 @@ input:focus-visible {
   white-space: normal;
   overflow: auto;
   outline: none;
+  cursor: text;
 }
 
 .canvas-text-box__editor.is-placeholder {
