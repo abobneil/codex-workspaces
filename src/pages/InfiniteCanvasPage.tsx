@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
   type WheelEvent as ReactWheelEvent,
@@ -20,7 +21,6 @@ interface PanState {
   initialX: number
   initialY: number
   hasMoved: boolean
-  shouldOpenMenu: boolean
 }
 
 interface CanvasActionMenuState {
@@ -739,7 +739,6 @@ export function InfiniteCanvasPage() {
       initialX: viewport.x,
       initialY: viewport.y,
       hasMoved: false,
-      shouldOpenMenu: event.button === 0,
     }
   }
 
@@ -773,10 +772,14 @@ export function InfiniteCanvasPage() {
 
     event.currentTarget.releasePointerCapture(event.pointerId)
     panRef.current = null
+  }
 
-    if (pan.shouldOpenMenu && !pan.hasMoved) {
-      openCanvasActionMenu(event.clientX, event.clientY)
+  const handleCanvasDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !isCanvasSurfaceTarget(event.target)) {
+      return
     }
+
+    openCanvasActionMenu(event.clientX, event.clientY)
   }
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
@@ -1437,6 +1440,7 @@ export function InfiniteCanvasPage() {
 
       <div
         className="canvas-viewport-shell"
+        onDoubleClick={handleCanvasDoubleClick}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
